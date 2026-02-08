@@ -1,0 +1,342 @@
+\begin{thebibliography}{10}
+\expandafter\ifx\csname url\endcsname\relax
+  \def\url#1{\texttt{#1}}\fi
+\expandafter\ifx\csname urlprefix\endcsname\relax\def\urlprefix{URL }\fi
+\expandafter\ifx\csname href\endcsname\relax
+  \def\href#1#2{#2} \def\path#1{#1}\fi
+
+\bibitem{hosseini2022hydrogen}
+S.~E. Hosseini, Hydrogen has found its way to become the fuel of the future,
+  Future Energy 1~(3) (2022) 11--12.
+
+\bibitem{IEA2024Global}
+{International Energy Agency}, Global hydrogen review 2024 (Oct. 2024).
+
+\bibitem{emam2024review}
+A.~S. Emam, M.~O. Hamdan, B.~A. Abu-Nabah, E.~Elnajjar, A review on recent
+  trends, challenges, and innovations in alkaline water electrolysis, Int. J.
+  Hydrogen Energy 64 (2024) 599--625.
+
+\bibitem{lange2024modularization}
+H.~Lange, A.~Klose, L.~Beisswenger, D.~Erdmann, L.~Urbas, Modularization
+  approach for large-scale electrolysis systems: a review, Sustainable Energy
+  Fuels~(8) (2024) 1208--1224.
+
+\bibitem{niblett2024review}
+D.~Niblett, M.~Delpisheh, S.~Ramakrishnan, M.~Mamlouk, Review of next
+  generation hydrogen production from offshore wind using water electrolysis,
+  J. Power Sources 592 (2024) 233904.
+
+\bibitem{chi2024elevating}
+Y.~Chi, J.~Lin, P.~Li, Z.~Yu, S.~Mu, X.~Li, Y.~Song, Elevating the acceptable
+  cost threshold for solid oxide cells: A case study on refinery
+  decarbonization, Appl. Energy 373 (2024) 123829.
+
+\bibitem{zhang2024optimizing}
+Q.~Zhang, D.~Xie, Y.~Zeng, Y.~Liu, H.~Yu, S.~Liu, Optimizing wind-solar
+  hydrogen production through collaborative strategy with {ALK/PEM}
+  multi-electrolyzer arrays, Renew. Energy 232 (2024) 121116.
+
+\bibitem{yang2022application}
+C.~Yang, J.~Ma, G.~Li, et~al., Application and practice of many-to-one
+  large-scale alkaline water electrolysis hydrogen production equipment, Solar
+  Energy 5 (2022) 103--114, in Chinese.
+
+\bibitem{rizwan2021design}
+M.~Rizwan, V.~Alstad, J.~J{\"a}schke, Design considerations for industrial
+  water electrolyzer plants, Int. J. Hydrogen Energy 46~(75) (2021)
+  37120--37136.
+
+\bibitem{chen2024enhancing}
+M.~Chen, J.~Jia, B.~Zhang, L.~Han, M.~Ji, Z.~Yu, D.~Li, W.~Wang, H.~Jia, H.~Xu,
+  Enhancing the efficiency of multi-electrolyzer clusters with lye mixer:
+  Topology design and control strategy., Energy Eng. 121~(10).
+
+\bibitem{shi2023plant}
+Y.~Shi, X.~Hu, Z.~Zhang, S.~Lu, L.~Xie, H.~Su, Plant-wide modeling, design
+  consideration, and practical hierarchical control strategy considering key
+  variable integral characteristics for an industrial alkaline water
+  electrolyzer plant, Ind. Eng. Chem. Res. 62~(36) (2023) 14441--14455.
+
+\bibitem{liang2024large}
+T.~Liang, M.~Chen, J.~Tan, Y.~Jing, L.~Lv, W.~Yang, Large-scale off-grid wind
+  power hydrogen production multi-tank combination operation law and scheduling
+  strategy taking into account alkaline electrolyzer characteristics, Renew.
+  Energy 232 (2024) 121122.
+
+\bibitem{li2023exploration}
+Y.~Li, X.~Deng, T.~Zhang, S.~Liu, L.~Song, F.~Yang, M.~Ouyang, X.~Shen,
+  Exploration of the configuration and operation rule of the
+  multi-electrolyzers hybrid system of large-scale alkaline water hydrogen
+  production system, Appl. Energy 331 (2023) 120413.
+
+\bibitem{meng2024advantages}
+X.~Meng, A.~Gu, J.~Zeng, M.~Chen, J.~Zhou, B.~Liu, Z.~Mao, Advantages and
+  challenges of {C}hina's participation in international hydrogen trade, Int.
+  J. Hydrogen Energy 52 (2024) 1356--1368.
+
+\bibitem{zhangalkaline}
+A.~Zhang, Y.~Ma, R.~Ding, L.~Li, Alkaline water electrolysis at industrial
+  scale, in: Green Hydrogen Production by Water Electrolysis, CRC Press, pp.
+  95--107.
+
+\bibitem{zhai2024review}
+Y.~Zhai, Y.~He, J.~Shao, W.~Zhang, X.~Tong, Z.~Wang, W.~Weng, Review of
+  hydrogen-driven power-to-x technology and application status in {C}hina,
+  Processes 12~(7) (2024) 1518.
+
+\bibitem{sanchez2018semi}
+M.~S{\'a}nchez, E.~Amores, L.~Rodr{\'\i}guez, C.~Clemente-Jul, Semi-empirical
+  model and experimental validation for the performance evaluation of a 15 kw
+  alkaline water electrolyzer, Int. J. Hydrogen Energy 43~(45) (2018)
+  20332--20345.
+
+\bibitem{huang2022multiphysics}
+D.~Huang, B.~Xiong, J.~Fang, K.~Hu, Z.~Zhong, Y.~Ying, X.~Ai, Z.~Chen, A
+  multiphysics model of the compactly-assembled industrial alkaline water
+  electrolysis cell, Appl. Energy 314 (2022) 118987.
+
+\bibitem{esfandiari2024metal}
+N.~Esfandiari, M.~Aliofkhazraei, A.~N. Colli, F.~C. Walsh, S.~Cherevko, L.~A.
+  Kibler, M.~M. Elnagar, P.~D. Lund, D.~Zhang, S.~Omanovic, et~al., Metal-based
+  cathodes for hydrogen production by alkaline water electrolysis: Review of
+  materials, degradation mechanism, and durability tests, Progr. Mat. Sci.
+  (2024) 101254.
+
+\bibitem{wang2023non}
+T.~Wang, J.~Wang, P.~Wang, F.~Wang, L.~Liu, H.~Guo, Non-uniform liquid flow
+  distribution in an alkaline water electrolyzer with concave-convex bipolar
+  plate {(CCBP)}: A numerical study, Int. J. Hydrogen Energy 48~(33) (2023)
+  12200--12214.
+
+\bibitem{zhang2024temperature}
+M.~Zhang, L.~Gao, L.~Yang, G.~Shan, Y.~Wang, X.~Huo, W.~Li, J.~Zhang,
+  Temperature distribution evolution in zero-gap alkaline water electrolyzer:
+  Experimental and modeling, Fuel 367 (2024) 131418.
+
+\bibitem{cao2024investigation}
+X.~Cao, N.~Zhao, S.~Zhang, L.~Zhou, Y.~Hu, J.~Yun, Investigation of the
+  hydrogen bubble effect on the overpotential in an alkaline water
+  electrolyzer, Int. J. Hydrogen Energy 49 (2024) 47--57.
+
+\bibitem{qi2023channel}
+R.~Qi, M.~Becker, J.~Brauns, T.~Turek, J.~Lin, Y.~Song, Channel design
+  optimization of alkaline electrolysis stacks considering the trade-off
+  between current efficiency and pressure drop, J. Power Sources 579 (2023)
+  233222.
+
+\bibitem{sakas2024influence}
+G.~Sakas, A.~Ib{\'a}{\~n}ez-Rioja, S.~P{\"o}yh{\"o}nen, A.~Kosonen,
+  V.~Ruuskanen, P.~Kauranen, J.~Ahola, Influence of shunt currents in
+  industrial-scale alkaline water electrolyzer plants, Renew. Energy 225 (2024)
+  120266.
+
+\bibitem{dogan2024experimental}
+D.~Dogan, B.~Hecker, B.~Schmid, H.~Kungl, H.~Tempel, R.-A. Eichel, Experimental
+  determination of stray currents in parallel operated cells exemplified on
+  alkaline water electrolysis, Electrochimica Acta 500 (2024) 144767.
+
+\bibitem{wang2022experimental}
+J.~Wang, Z.~Ji, Z.~Liu, Experimental and numerical investigation on the
+  gas--liquid separation performance of a novel vane separator with grooves,
+  Chem. Eng. Res. Des. 180 (2022) 306--317.
+
+\bibitem{zeng2020experimental}
+X.~Zeng, G.~Fan, J.~Xu, A.~Liu, Y.~Xu, C.~Yan, Experimental study on a new
+  gas--liquid separator for a wide range of gas volume fraction, Chem. Eng.
+  Res. Des. 160 (2020) 561--570.
+
+\bibitem{hu2024study}
+Y.~Hu, Z.~Yin, C.~Han, R.~Tong, W.~Li, H.~Li, Study on gas-liquid separator for
+  separation performance and structural optimization in {AEL} coupled with
+  renewable energy sources, Int. J. Hydrogen Energy 88 (2024) 369--377.
+
+\bibitem{rashidi2022progress}
+S.~Rashidi, N.~Karimi, B.~Sunden, K.~C. Kim, A.~G. Olabi, O.~Mahian, Progress
+  and challenges on the thermal management of electrochemical energy conversion
+  and storage technologies: Fuel cells, electrolysers, and supercapacitors,
+  Prog. Energy Combust. Sci. 88 (2022) 100966.
+
+\bibitem{jiang2024performance}
+Y.~Jiang, J.~Wu, K.~He, Y.~Zhang, Q.~Chen, M.~Zhang, T.~Zhao, Y.~Liu,
+  Performance analysis of alkaline water electrolysis system based on heat
+  current modeling method, in: 2024 IEEE 2nd Int. Conf. Power Sci. Tech.
+  (ICPST), IEEE, 2024, pp. 1785--1794.
+
+\bibitem{kang2018optimal}
+L.~Kang, X.~Liang, Y.~Liu, Optimal design of inter-plant hydrogen networks with
+  intermediate headers of purity and pressure, Int. J. Hydrogen Energy 43~(34)
+  (2018) 16638--16651.
+
+\bibitem{ulleberg2003modeling}
+{\O}.~Ulleberg, Modeling of advanced alkaline electrolyzers: a system
+  simulation approach, Int. J. Hydrogen Energy 28~(1) (2003) 21--33.
+
+\bibitem{david2020dynamic}
+M.~David, H.~{\'A}lvarez, C.~Ocampo-Martinez, R.~S{\'a}nchez-Pe{\~n}a, Dynamic
+  modelling of alkaline self-pressurized electrolyzers: a
+  phenomenological-based semiphysical approach, Int. J. Hydrogen Energy 45~(43)
+  (2020) 22394--22407.
+
+\bibitem{qi2023thermal}
+R.~Qi, J.~Li, J.~Lin, Y.~Song, J.~Wang, Q.~Cui, Y.~Qiu, M.~Tang, J.~Wang,
+  Thermal modeling and controller design of an alkaline electrolysis system
+  under dynamic operating conditions, Appl. Energy 332 (2023) 120551.
+
+\bibitem{qi2023design}
+R.~Qi, J.~Li, J.~Lin, Y.~Song, J.~Wang, Q.~Cui, Y.~Qiu, M.~Tang, J.~Wang,
+  Design of the pid temperature controller for an alkaline electrolysis system
+  with time delays, Int. J. Hydrogen Energy 48~(50) (2023) 19008--19021.
+
+\bibitem{qi2021pressure}
+R.~Qi, X.~Gao, J.~Lin, Y.~Song, J.~Wang, Y.~Qiu, M.~Liu, Pressure control
+  strategy to extend the loading range of an alkaline electrolysis system, Int.
+  J. Hydrogen Energy 46~(73) (2021) 35997--36011.
+
+\bibitem{cheng2024self}
+H.~Cheng, Y.~Xia, W.~Wei, Self-optimization control for alkaline water
+  electrolyzers considering electrolyzer temperature variations, IEEE Trans.
+  Ind. Electronics, Early Access.
+
+\bibitem{li2022active}
+Y.~Li, T.~Zhang, X.~Deng, B.~Liu, J.~Ma, F.~Yang, M.~Ouyang, Active pressure
+  and flow rate control of alkaline water electrolyzer based on wind power
+  prediction and 100\% energy utilization in off-grid wind-hydrogen coupling
+  system, Appl. Energy 328 (2022) 120172.
+
+\bibitem{li2022study}
+Y.~Li, T.~Zhang, J.~Ma, X.~Deng, J.~Gu, F.~Yang, M.~Ouyang, Study the effect of
+  lye flow rate, temperature, system pressure and different current density on
+  energy consumption in catalyst test and 500w commercial alkaline water
+  electrolysis, Materials Today Physics 22 (2022) 100606.
+
+\bibitem{ding2023experimental}
+S.~Ding, B.~Guo, S.~Hu, Z.~Tian, J.~Gu, T.~Zhang, F.~Yang, M.~Ouyang,
+  Experimental and modeling study on energy flow of 250 {kW} alkaline water
+  electrolysis system under steady state conditions and cold start process,
+  Fuel 350 (2023) 128799.
+
+\bibitem{sakas2022dynamic}
+G.~Sakas, A.~Ib{\'a}{\~n}ez-Rioja, V.~Ruuskanen, A.~Kosonen, J.~Ahola,
+  O.~Bergmann, Dynamic energy and mass balance model for an industrial alkaline
+  water electrolyzer plant process, Int. J. Hydrogen Energy 47~(7) (2022)
+  4328--4345.
+
+\bibitem{qiu2023dynamic}
+X.~Qiu, H.~Zhang, Y.~Qiu, Y.~Zhou, T.~Zang, B.~Zhou, R.~Qi, J.~Lin, J.~Wang,
+  Dynamic parameter estimation of the alkaline electrolysis system combining
+  {B}ayesian inference and adaptive polynomial surrogate models, Appl. Energy
+  348 (2023) 121533.
+
+\bibitem{olivier2017low}
+P.~Olivier, C.~Bourasseau, P.~B. Bouamama, Low-temperature electrolysis system
+  modelling: A review, Renew. Sustainable Energy Rev. 78 (2017) 280--300.
+
+\bibitem{daoudi2024overview}
+C.~Daoudi, T.~Bounahmidi, Overview of alkaline water electrolysis modeling,
+  Int. J. Hydrogen Energy 49 (2024) 646--667.
+
+\bibitem{aguirre2024control}
+O.~A. Aguirre, C.~Ocampo-Martinez, O.~Camacho, Control strategies for alkaline
+  water electrolyzers: A survey, Int. J. Hydrogen Energy 86 (2024) 1195--1213.
+
+\bibitem{qiu2024nonlinear}
+Y.~Qiu, H.~Zhang, Y.~Zhou, T.~Zang, B.~Zhou, G.~Chen, Nonlinear model
+  predictive control of alkaline electrolyzers to provide ancillary services,
+  in: 2024 IEEE 7th Int. Electrical Energy Conf. (CIEEC), IEEE, 2024, pp.
+  2819--2824.
+
+\bibitem{li2024optimization}
+X.~Li, D.~Gao, J.~Tang, R.~Lin, H.~Li, R.~Qi, L.~Sha, C.~Yang, W.~Li,
+  Optimization of chemical engineering control for large-scale alkaline
+  electrolysis systems based on renewable energy sources, Int. J. Hydrogen
+  Energy 93 (2024) 193--206.
+
+\bibitem{zheng2022optimal}
+Y.~Zheng, S.~You, H.~W. Bindner, M.~M{\"u}nster, Optimal day-ahead dispatch of
+  an alkaline electrolyser system concerning thermal--electric properties and
+  state-transitional dynamics, Appl. Energy (2022) 118091.
+
+\bibitem{zhang2014wind}
+G.~Zhang, X.~Wan, A wind-hydrogen energy storage system model for massive wind
+  energy curtailment, Int. J. Hydrogen Energy 39~(3) (2014) 1243--1252.
+
+\bibitem{wang2024water}
+J.~Wang, J.~Wen, J.~Wang, B.~Yang, L.~Jiang, Water electrolyzer operation
+  scheduling for green hydrogen production: A review, Renew. Sustainable Energy
+  Rev. 203 (2024) 114779.
+
+\bibitem{varela2021modeling}
+C.~Varela, M.~Mostafa, E.~Zondervan, Modeling alkaline water electrolysis for
+  power-to-x applications: A scheduling approach, Int. J. Hydrogen Energy
+  46~(14) (2021) 9303--9313.
+
+\bibitem{qiu2023extended}
+Y.~Qiu, B.~Zhou, T.~Zang, Y.~Zhou, S.~Chen, R.~Qi, J.~Li, J.~Lin, Extended load
+  flexibility of utility-scale {P2H} plants: Optimal production scheduling
+  considering dynamic thermal and {HTO} impurity effects, Renew. Energy 217
+  (2023) 119198.
+
+\bibitem{li2024two}
+J.~Li, B.~Yang, J.~Lin, F.~Liu, Y.~Qiu, Y.~Xu, R.~Qi, Y.~Song, Two-layer energy
+  management strategy for grid-integrated multi-stack power-to-hydrogen
+  station, Applied Energy 367 (2024) 123413.
+
+\bibitem{qiu2024flexibility}
+Y.~Qiu, Y.~Zhou, S.~Chen, T.~Zang, B.~Zhou, Flexibility assessment and
+  aggregation of alkaline electrolyzers considering dynamic process constraints
+  for energy management of renewable power-to-hydrogen systems, Renew. Energy
+  235 (2024) 121261.
+
+\bibitem{cheng2023coordinated}
+X.~Cheng, J.~Lin, F.~Liu, Y.~Qiu, Y.~Song, J.~Li, S.~Wu, A coordinated
+  frequency regulation and bidding method for wind-electrolysis joint systems
+  participating within ancillary services markets, IEEE Trans. Sustainable
+  Energy 14~(3) (2023) 1370--1384.
+
+\bibitem{guan2024frequency}
+A.~Guan, S.~Zhou, W.~Gu, Z.~Wu, X.~Ai, J.~Fang, Frequency response coefficient
+  optimal allocation strategy for multi-stacks alkaline water electrolyzer
+  plant, Int. J. Hydrogen Energy 89 (2024) 151--160.
+
+\bibitem{zeng2024scheduling}
+Y.~Zeng, Y.~Qiu, J.~Zhu, S.~Chen, B.~Zhou, J.~Li, B.~Yang, J.~Lin, Scheduling
+  multiple industrial electrolyzers in renewable {P2H} systems: A coordinated
+  active-reactive power management method, IEEE Trans. Sustainable Energy
+  16~(1) (2024) 201--214.
+
+\bibitem{dieguez2008thermal}
+P.~Di{\'e}guez, A.~Urs{\'u}a, P.~Sanchis, C.~Sopena, E.~Guelbenzu,
+  L.~Gand{\'\i}a, Thermal performance of a commercial alkaline water
+  electrolyzer: Experimental study and mathematical modeling, Int. J. Hydrogen
+  Energy 33~(24) (2008) 7338--7354.
+
+\bibitem{trinke2018hydrogen}
+P.~Trinke, P.~Haug, J.~Brauns, B.~Bensmann, R.~Hanke-Rauschenbach, T.~Turek,
+  Hydrogen crossover in pem and alkaline water electrolysis: mechanisms, direct
+  comparison and mitigation strategies, J. Electrochem. Soc. 165~(7) (2018)
+  F502.
+
+\bibitem{baldea2014integrated}
+M.~Baldea, I.~Harjunkoski, Integrated production scheduling and process
+  control: A systematic review, Comput. Chem. Eng. 71 (2014) 377--390.
+
+\bibitem{qiu2021continuous}
+Y.~Qiu, J.~Lin, F.~Liu, N.~Dai, Y.~Song, Continuous random process modeling of
+  agc signals based on stochastic differential equations, IEEE Trans. Power
+  Syst. 36~(5) (2021) 4575--4587.
+
+\bibitem{qiu2020stochastic}
+Y.~Qiu, J.~Lin, F.~Liu, Y.~Song, G.~Chen, L.~Ding, Stochastic online generation
+  control of cascaded run-of-the-river hydropower for mitigating solar power
+  volatility, IEEE Trans. Power Syst. 35~(6) (2020) 4709--4722.
+
+\bibitem{jones2010polytopic}
+C.~N. Jones, M.~Morari, Polytopic approximation of explicit model predictive
+  controllers, IEEE Trans. Automat. Control 55~(11) (2010) 2542--2553.
+
+\bibitem{bemporad1999control}
+A.~Bemporad, M.~Morari, Control of systems integrating logic, dynamics, and
+  constraints, Automatica 35~(3) (1999) 407--427.
+
+\end{thebibliography}
