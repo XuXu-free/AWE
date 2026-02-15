@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from plant.multi_stack_simulator import MultiStackSimulator
 
 # --- Custom RK4 Solver Removed (Using sim.step) ---
@@ -42,7 +44,7 @@ def run_simulation():
     sim.reset()
     
     x0 = sim.get_state()
-    print(f"Initial State Set: T_s_in={sim.T_s_init:.2f} K, T_sep={sim.T_sep_init:.2f} K, HTO={sim.HTO_init:.3f}%")
+    print(f"Initial State Set: T_s_in={sim.T_s_init:.2f} K, T_sep={sim.T_s_in_init:.2f} K, HTO={sim.HTO_init:.3f}%")
     
     # --- Main Simulation ---
     print("Running main simulation...")

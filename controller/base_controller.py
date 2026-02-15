@@ -9,16 +9,17 @@ class BaseController(ABC):
         self.dt = dt
 
     @abstractmethod
-    def get_action(self, state, setpoint):
+    def get_action(self, state, P_ref, T_ref=None):
         """
         Calculate control action based on current state and setpoint.
         
         Args:
             state: Current system state.
-            setpoint: Target state or reference.
+            P_ref: Power reference (scalar or vector).
+            T_ref: Temperature reference (optional).
             
         Returns:
-            action: Control input to apply.
+            tuple: (I_cmd, v_lye_cmd, v_c_cmd)
         """
         pass
     

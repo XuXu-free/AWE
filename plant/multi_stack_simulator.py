@@ -64,6 +64,35 @@ class MultiStackSimulator(BaseSimulator):
         self.K_eff = 2e-16
         self.tau_sep = 60.0
         
+        self.S_H2_lye = self._calculate_h2_solubility()
+        
+        self.R = 8.314
+        
+        self.mu_lye = 8.76e-4
+        
+        # Initial Conditions (Open Loop)
+        self.T_s_init = 358.0 # 85 C
+        self.T_s_in_init = 345.0 # 72 C / 345K
+        self.T_sep_init = 358.0 # 85 C
+        self.HTO_init = 0.52 # %
+        self.T_c_out_init = 325.0 
+        
+        # Control Limits
+        self.T_min = 20.0
+        self.T_max = 90.0
+        self.I_min = 0.0
+        self.I_max = 7800.0 * 1.2
+        self.v_lye_min = 0.0
+        self.v_lye_max = 0.1
+        self.v_c_min = 0.0
+        self.v_c_max = 1.0
+        
+        self.P_stack_max = 6.0e6
+        self.P_stack_min = 0.0
+        self.U_cell_min = 0.0
+        self.U_cell_max = 2.2
+        
+    def _calculate_h2_solubility(self):
         # Calculate H2 Solubility in Lye (S_H2) [mol/(m^3 Pa)]
         # Based on Secchenov equation and Henry's Law at 80C
         rho_H2O = 1000     # kg/m^3 at 80C
@@ -77,23 +106,8 @@ class MultiStackSimulator(BaseSimulator):
         S_H2_H2O = rho_H2O * self.p_sys / (M_H2O * p_atm * H_H2)
         
         # S_H2_lye = S_H2_H2O / 10^(K_H2 * w_lye)
-        self.S_H2_lye = S_H2_H2O / (10**(K_H2 * w_lye))
-        
-        self.R = 8.314
-        
-        self.mu_lye = 8.76e-4
-        
-        # Initial Conditions (Open Loop)
-        self.T_s_init = 358.0 # 85 C
-        self.T_sep_init = 345.0 # 72 C / 345K
-        self.HTO_init = 0.52 # %
-        self.T_c_out_init = 325.0 
-        
-        # Control Limits
-        self.v_lye_max = 0.1
-        self.v_lye_min = 0.0
-        self.v_c_max = 1.0
-        
+        return S_H2_H2O / (10**(K_H2 * w_lye))
+
     def _calculate_electrochemical_properties(self, I_i, T_s_i):
         # T_s_i is in Kelvin (Vector)
         T_C = T_s_i - 273.15
@@ -224,20 +238,22 @@ class MultiStackSimulator(BaseSimulator):
         v_c = u[8]
         
         # Calculate Derivatives
+        Q_ele_i, U_cell_i, eta_F_i = self._calculate_electrochemical_properties(I_i, T_s_i)
+
         dT_s_in_dt, dT_s_dt, dT_sep_dt, dT_c_out_dt = self._calculate_thermal_derivatives(I_i, v_lye_i, v_c, T_s_in, T_s_i, T_sep, T_c_out)
-        n_dot_H2_an, n_dot_H2_sep_liq, n_dot_H2_sep_gas = self._calculate_hto_derivatives(I_i, v_lye_i, n_H2_an_i, n_H2_sep_liq, n_H2_sep_gas, T_sep, T_s_i)
+        n_dot_H2_an, n_dot_H2_sep_liq, n_dot_H2_sep_gas = self._calculate_hto_derivatives(I_i, v_lye_i, n_H2_an_i, n_H2_sep_liq, n_H2_sep_gas, T_sep, T_s_i, eta_F_i)
         
         dxdt = np.concatenate([[dT_s_in_dt], dT_s_dt, [dT_sep_dt], [dT_c_out_dt], n_dot_H2_an, [n_dot_H2_sep_liq], [n_dot_H2_sep_gas]])
         return dxdt
 
 
-    def _calculate_hto_derivatives(self, I_i, v_lye_i, n_H2_an_i, n_H2_sep_liq, n_H2_sep_gas, T_sep, T_s_i):
+    def _calculate_hto_derivatives(self, I_i, v_lye_i, n_H2_an_i, n_H2_sep_liq, n_H2_sep_gas, T_sep, T_s_i, eta_F_i):
         """
         Calculate derivatives for Hydrogen-in-Oxygen (HTO) impurity dynamics.
         Based on mass balance in Anode, Separator Liquid, and Separator Gas phases.
         """
         # Calculate Faraday Efficiency for O2 production (Vectorized)
-        _, _, eta_F_i = self._calculate_electrochemical_properties(I_i, T_s_i)
+        # eta_F_i is now passed as argument
         
         # 1. O2 Production Rate (Molar)
         # n_dot_O2 = (N_cell * I * eta_F) / (4 * F)
@@ -296,7 +312,7 @@ class MultiStackSimulator(BaseSimulator):
             x0 = np.zeros(13)
             
             # T_s_in (HX Lye Out)
-            x0[0] = self.T_s_init # Initial guess for Lye In
+            x0[0] = self.T_s_in_init # Initial guess for Lye In
             
             # T_s (Stacks)
             x0[1:5] = self.T_s_init

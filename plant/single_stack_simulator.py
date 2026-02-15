@@ -53,16 +53,7 @@ class SingleStackSimulator(BaseSimulator):
         self.K_eff = 2e-16
         self.tau_sep = 60.0
         
-        # Solubility
-        rho_H2O = 1000
-        M_H2O = 18e-3
-        p_atm = 101325.0
-        H_H2 = 7.1698e4 * p_atm
-        K_H2 = 3.14
-        w_lye = 0.30
-        
-        S_H2_H2O = rho_H2O * self.p_sys / (M_H2O * p_atm * H_H2)
-        self.S_H2_lye = S_H2_H2O / (10**(K_H2 * w_lye))
+        self.S_H2_lye = self._calculate_h2_solubility()
         
         self.R = 8.314
         self.mu_lye = 8.76e-4
@@ -77,6 +68,22 @@ class SingleStackSimulator(BaseSimulator):
         self.v_lye_max = 0.0335
         self.v_lye_min = 0.0101
         self.v_c_max = 0.032
+        
+    def _calculate_h2_solubility(self):
+        # Calculate H2 Solubility in Lye (S_H2) [mol/(m^3 Pa)]
+        # Based on Secchenov equation and Henry's Law at 80C
+        rho_H2O = 1000     # kg/m^3 at 80C
+        M_H2O = 18e-3   # kg/mol
+        p_atm = 101325.0    # Pa = kg/(m*s^2)
+        H_H2 = 7.1698e4 * p_atm # Pa = kg/(m*s^2)
+        K_H2 = 3.14         # Secchenov parameter
+        w_lye = 0.30        # 30 wt% KOH
+        
+        # S_H2_H2O = rho_H2O / (M_H2O * p_atm * H_H2)
+        S_H2_H2O = rho_H2O * self.p_sys / (M_H2O * p_atm * H_H2)
+        
+        # S_H2_lye = S_H2_H2O / 10^(K_H2 * w_lye)
+        return S_H2_H2O / (10**(K_H2 * w_lye))
         
     def _calculate_electrochemical_properties(self, I, T_s):
         # T_s in Kelvin
@@ -160,9 +167,8 @@ class SingleStackSimulator(BaseSimulator):
         
         return dT_s_in_dt, dT_s_dt, dT_sep_dt, dT_c_out_dt
 
-    def _calculate_hto_derivatives(self, I, v_lye, n_H2_an, n_H2_sep_liq, n_H2_sep_gas, T_sep, T_s):
+    def _calculate_hto_derivatives(self, I, v_lye, n_H2_an, n_H2_sep_liq, n_H2_sep_gas, T_sep, T_s, eta_F):
         # Scalars
-        _, _, eta_F = self._calculate_electrochemical_properties(I, T_s)
         
         # 1. O2 Production Rate (Molar)
         n_dot_O2_prod = self.N_cell * I * eta_F / (4 * 96485.0)
@@ -221,7 +227,22 @@ class SingleStackSimulator(BaseSimulator):
         v_c = u[2]
         
         dT_s_in_dt, dT_s_dt, dT_sep_dt, dT_c_out_dt = self._calculate_thermal_derivatives(I, v_lye, v_c, T_s_in, T_s, T_sep, T_c_out)
-        n_dot_H2_an, n_dot_H2_sep_liq, n_dot_H2_sep_gas = self._calculate_hto_derivatives(I, v_lye, n_H2_an, n_H2_sep_liq, n_H2_sep_gas, T_sep, T_s)
+        
+        # Get eta_F from electrochemical calc (already done inside thermal derivatives, but we need it here)
+        # To avoid re-calculation, we could refactor _calculate_thermal_derivatives to return it or calculate it before.
+        # For now, let's just calculate it again or optimize _calculate_thermal_derivatives.
+        # Actually, let's calculate it once at the top level.
+        
+        Q_ele, U_cell, eta_F = self._calculate_electrochemical_properties(I, T_s)
+        
+        # Recalculate thermal derivatives using known Q_ele if we want to avoid double calc, 
+        # but _calculate_thermal_derivatives calls it internally. 
+        # Ideally we should pass Q_ele etc to _calculate_thermal_derivatives.
+        # However, to minimize changes, let's just accept the small redundancy or refactor thermal.
+        # Let's refactor thermal to take Q_ele as optional or just leave it.
+        # Given the previous tool call modified _calculate_hto_derivatives to take eta_F, we MUST provide it.
+        
+        n_dot_H2_an, n_dot_H2_sep_liq, n_dot_H2_sep_gas = self._calculate_hto_derivatives(I, v_lye, n_H2_an, n_H2_sep_liq, n_H2_sep_gas, T_sep, T_s, eta_F)
         
         dxdt = np.array([dT_s_in_dt, dT_s_dt, dT_sep_dt, dT_c_out_dt, n_dot_H2_an, n_dot_H2_sep_liq, n_dot_H2_sep_gas])
         return dxdt

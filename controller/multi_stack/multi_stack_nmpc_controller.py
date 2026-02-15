@@ -1,8 +1,9 @@
 
 import casadi as ca
 import numpy as np
+from ..base_controller import BaseController
 
-class MultiStackNMPCController:
+class MultiStackNMPCController(BaseController):
     def __init__(self, dt=60.0, horizon=10):
         self.dt = dt
         self.N = horizon
@@ -30,31 +31,33 @@ class MultiStackNMPCController:
         self.C_c = 2.0e7      # HX CW Side Heat Capacity (Estimated)
         
         self.h_A_stack = 1000.0 # Convective/Rad coeff estimate (simplified form of sigma_s + rad)
-        self.T_amb = 25.0
+        self.T_amb = 298.15
         
         self.kA_hx = 960.0 * 240.0 # k_he * A_he = 230400.0
-        self.T_cw_in = 15.0 # 288K
+        self.T_cw_in = 288.15 # 288K
         self.c_cw = 4200.0
         self.rho_cw = 1000.0
         self.c_lye = 3200.0
         self.rho_lye = 1280.0
         
         # Constraints
-        self.T_min = 20.0
-        self.T_max = 90.0
+        self.T_min = 293.15
+        self.T_max = 363.15
         self.I_min = 0.0
-        # self.I_max = 7800.0 * 1.2
-        self.I_max = 7800.0
+        self.I_max = 7800.0 * 1.2
+        # self.I_max = 7800.0
         self.v_lye_min = 0.0
         self.v_lye_max = 0.1
         self.v_c_min = 0.0
         self.v_c_max = 1.0
         
         self.P_stack_max = 6.0e6
-        self.U_cell_max = 2.1
+        self.P_stack_min = 0.0
+        self.U_cell_min = 0.0
+        self.U_cell_max = 2.2
         
         # Targets
-        self.T_ref = 85.0
+        self.T_ref = 358.15 # Default value, updated in get_action
         
         # Weights
         # Adjusted for 4 stacks:
@@ -62,6 +65,7 @@ class MultiStackNMPCController:
         self.lambda_prod = 1.0
         self.lambda_track = 1.2 # 1e-6 scaling in cost
         self.lambda_temp = 0.15
+        # self.lambda_temp = 0
         self.lambda_I = 0.0002
         self.lambda_lye = 25000.0
         self.lambda_c = 0.5
@@ -106,10 +110,10 @@ class MultiStackNMPCController:
         v_c_prev = self.P[p_idx]; p_idx += 1
         
         # Convert to Celsius for Internal Model
-        T_s_in_k = T_s_in_K - 273.15
-        T_s_k = T_s_K - 273.15
-        T_sep_k = T_sep_K - 273.15
-        T_c_out_k = T_c_out_K - 273.15
+        T_s_in_k = T_s_in_K
+        T_s_k = T_s_K
+        T_sep_k = T_sep_K
+        T_c_out_k = T_c_out_K
         
         obj = 0
         g = []
@@ -136,8 +140,8 @@ class MultiStackNMPCController:
             
             # Pre-calculate Electro-chemical (assume constant over step k)
             # Voltage & Power
-            T_C_vec = T_s_k # Celsius
-            T_K_vec = T_C_vec + 273.15
+            T_K_vec = T_s_k
+            T_C_vec = T_K_vec - 273.15 # Celsius for correlations
             
             R_ohm = self.r1 + self.r2 * T_K_vec + self.r3 * self.P_sys
             term_act = self.t1 + self.t2 / T_C_vec + self.t3 / (T_C_vec**2 + 1.0) # +1 to avoid div0
@@ -231,12 +235,12 @@ class MultiStackNMPCController:
             
             # Max Stack Power (0 <= P_i <= 6MW)
             g.append(Power_k_vec)
-            lbg.extend([0.0]*self.n_stacks)
+            lbg.extend([self.P_stack_min]*self.n_stacks)
             ubg.extend([self.P_stack_max]*self.n_stacks)
             
             # Max Cell Voltage (U_i <= 2.1V)
             g.append(V_cell)
-            lbg.extend([-ca.inf]*self.n_stacks)
+            lbg.extend([self.U_cell_min]*self.n_stacks)
             ubg.extend([self.U_cell_max]*self.n_stacks)
             
         # Input Bounds
@@ -262,7 +266,10 @@ class MultiStackNMPCController:
         opts = {'ipopt.print_level': 0, 'print_time': 0, 'ipopt.tol': 1e-4}
         self.solver = ca.nlpsol('solver', 'ipopt', nlp, opts)
 
-    def get_action(self, state_vec, P_ref_vec):
+    def solve_nmpc(self, state_vec, P_ref_vec, T_ref):
+        # Update internal T_ref for logging/reference
+        self.T_ref = T_ref
+
         # P_ref_vec should be length N. If scalar, repeat.
         if np.isscalar(P_ref_vec):
             P_ref_vec = [P_ref_vec] * self.N
@@ -291,8 +298,8 @@ class MultiStackNMPCController:
             
         # Construct Parameters
         p = []
-        p.extend(state_vec.tolist()) # Full state vector (13)
-        p.append(self.T_ref) # T_ref (Celsius)
+        p.extend(state_vec.flatten().tolist()) # Full state vector (13)
+        p.append(self.T_ref) # T_ref (Kelvin)
         p.extend(P_ref_vec)  # P_ref (N)
         p.extend(self.last_I.tolist())
         p.extend(self.last_v_lye.tolist())
@@ -302,7 +309,15 @@ class MultiStackNMPCController:
             sol = self.solver(x0=x0, lbx=self.lbx, ubx=self.ubx, lbg=self.lbg, ubg=self.ubg, p=p)
             u_opt = sol['x'].full().flatten()
             self.prev_sol_x = u_opt # Save for warm start
-            
+            return u_opt
+        except Exception as e:
+            print(f"Multi-Stack NMPC Failed: {e}")
+            return None
+
+    def get_action(self, state_vec, P_ref_vec, T_ref=358.15):
+        u_opt = self.solve_nmpc(state_vec, P_ref_vec, T_ref)
+        
+        if u_opt is not None:
             # Extract first step
             u0 = u_opt[0 : self.n_controls]
             I_cmd = u0[0 : self.n_stacks]
@@ -314,7 +329,31 @@ class MultiStackNMPCController:
             self.last_v_c = v_c_cmd
             
             return I_cmd, v_lye_cmd, v_c_cmd
-            
-        except Exception as e:
-            print(f"Multi-Stack NMPC Failed: {e}")
+        else:
             return self.last_I, self.last_v_lye, self.last_v_c
+
+    def get_all_actions(self, state_vec, P_ref_vec, T_ref=358.15):
+        """
+        Returns all optimized actions in the horizon.
+        Output shape: (N, n_controls)
+        n_controls = 9 [I_1..4, v_lye_1..4, v_c]
+        """
+        u_opt = self.solve_nmpc(state_vec, P_ref_vec, T_ref)
+        
+        if u_opt is not None:
+            # Extract first step for internal state update
+            u0 = u_opt[0 : self.n_controls]
+            I_cmd = u0[0 : self.n_stacks]
+            v_lye_cmd = u0[self.n_stacks : 2*self.n_stacks]
+            v_c_cmd = u0[2*self.n_stacks]
+            
+            self.last_I = I_cmd
+            self.last_v_lye = v_lye_cmd
+            self.last_v_c = v_c_cmd
+            
+            # Reshape to (N, n_controls)
+            return u_opt.reshape(self.N, self.n_controls)
+        else:
+            # Return copies of last action repeated
+            last_action = np.concatenate([self.last_I, self.last_v_lye, [self.last_v_c]])
+            return np.tile(last_action, (self.N, 1))
