@@ -22,30 +22,9 @@ SIGMA_N_SEP = 0.5  # Separator level/gas noise (mol)
 
 def add_measurement_noise(state):
     """
-    Add Gaussian noise to the state vector to simulate sensor measurements.
+    Returns the state as-is without adding noise.
     """
-    noisy_state = np.copy(state)
-    
-    # 0: T_s_in
-    noisy_state[0] += np.random.normal(0, SIGMA_T)
-    # 1-4: T_s (Stack Temps)
-    noisy_state[1:5] += np.random.normal(0, SIGMA_T, 4)
-    # 5: T_sep
-    noisy_state[5] += np.random.normal(0, SIGMA_T)
-    # 6: T_c_out
-    noisy_state[6] += np.random.normal(0, SIGMA_T)
-    # 7-10: n_H2_an (Anode H2)
-    noisy_state[7:11] += np.random.normal(0, SIGMA_N_H2, 4)
-    # 11: n_liq
-    noisy_state[11] += np.random.normal(0, SIGMA_N_SEP)
-    # 12: n_gas
-    noisy_state[12] += np.random.normal(0, SIGMA_N_SEP)
-    
-    # Clip to physical limits (e.g. no negative concentrations or temperatures)
-    noisy_state[0:7] = np.maximum(noisy_state[0:7], 0.0) # Temps > 0
-    noisy_state[7:13] = np.maximum(noisy_state[7:13], 0.0) # Moles > 0
-    
-    return noisy_state
+    return np.copy(state)
 
 def generate_power_profile_values(t_eval):
     for t in t_eval:
@@ -375,13 +354,15 @@ def save_plot(history, output_dir, filename):
     ax.legend()
     ax.grid(True)
     
-    # System Temperatures
+    # System Temperatures (Combined)
     ax = axes[0,1]
     ax.plot(t_arr, history['T_sep'], 'g--', label='Separator')
     ax.plot(t_arr, history['T_c_out'], 'c:', label='CW Out')
+    for i in range(4):
+        ax.plot(t_arr, T_s_all[:, i], label=f'Stack {i+1}')
     ax.plot(t_arr, history['T_ref'], 'k--', linewidth=1.5, label='Ref Temp')
     ax.axvline(x=0, color='gray', linestyle=':')
-    ax.set_title('System Temperatures')
+    ax.set_title('All Temperatures')
     ax.set_ylabel('K')
     ax.legend()
     ax.grid(True)
@@ -394,19 +375,8 @@ def save_plot(history, output_dir, filename):
     ax.set_ylabel('%')
     ax.grid(True)
     
-    # Stack Temperatures
-    ax = axes[1,0]
-    for i in range(4):
-        ax.plot(t_arr, T_s_all[:, i], label=f'Stack {i+1}')
-    ax.plot(t_arr, history['T_ref'], 'k--', linewidth=1.5, label='Ref Temp')
-    ax.axvline(x=0, color='gray', linestyle=':')
-    ax.set_title('Individual Stack Temperatures')
-    ax.set_ylabel('K')
-    ax.legend()
-    ax.grid(True)
-    
     # Stack Currents
-    ax = axes[1,1]
+    ax = axes[1,0]
     for i in range(4):
         ax.plot(t_arr, I_all[:, i], label=f'Stack {i+1}')
     ax.axvline(x=0, color='gray', linestyle=':')
@@ -416,7 +386,7 @@ def save_plot(history, output_dir, filename):
     ax.grid(True)
     
     # Stack Voltages
-    ax = axes[1,2]
+    ax = axes[1,1]
     for i in range(4):
         ax.plot(t_arr, U_cell_all[:, i], label=f'Stack {i+1}')
     ax.axvline(x=0, color='gray', linestyle=':')
@@ -424,9 +394,9 @@ def save_plot(history, output_dir, filename):
     ax.set_ylabel('Volts')
     ax.legend()
     ax.grid(True)
-    
-    # Lye Flow
-    ax = axes[2,0]
+
+    # Stack Lye Flow
+    ax = axes[1,2]
     for i in range(4):
         ax.plot(t_arr, v_lye_all[:, i], label=f'Stack {i+1}')
     ax.axvline(x=0, color='gray', linestyle=':')
@@ -435,8 +405,8 @@ def save_plot(history, output_dir, filename):
     ax.legend()
     ax.grid(True)
 
-    # CW Flow
-    ax = axes[2,1]
+    # Coolant Flow
+    ax = axes[2,0]
     ax.plot(t_arr, history['v_c'], 'cyan', label='CW')
     ax.axvline(x=0, color='gray', linestyle=':')
     ax.set_title('Coolant Flow')
@@ -444,12 +414,16 @@ def save_plot(history, output_dir, filename):
     ax.grid(True)
     
     # H2 Production Rate
-    ax = axes[2,2]
+    ax = axes[2,1]
     ax.plot(t_arr, history['H2_rate'], 'g-', label='H2 Rate')
     ax.axvline(x=0, color='gray', linestyle=':')
     ax.set_title('Total H2 Production Rate')
     ax.set_ylabel('mol/s')
     ax.grid(True)
+    
+    # Empty
+    ax = axes[2,2]
+    ax.axis('off')
     
     plt.tight_layout()
     plot_path = os.path.join(output_dir, filename.replace('.csv', '.png'))

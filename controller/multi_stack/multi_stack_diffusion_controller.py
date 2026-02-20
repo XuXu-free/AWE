@@ -7,6 +7,12 @@ from ..base_controller import BaseController
 from diffusion.model import DiffusionMLP, DiffusionTCN, FlowMatchingTCN
 from diffusion.ddpm import DDPMScheduler
 from diffusion.flow_matching import FlowMatchingScheduler
+try:
+    from plant.multi_stack_simulator import MultiStackSimulator
+except ImportError:
+    # Fallback if running from a different context, try to adjust path
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+    from plant.multi_stack_simulator import MultiStackSimulator
 
 class MultiStackDiffusionController(BaseController):
     def __init__(self, dt=1.0, horizon=10, model_type='tcn', model_path=None, stats_path=r'd:\Projects\AWE\output\multi_stack\diffusion_stats.npz'):
@@ -14,9 +20,22 @@ class MultiStackDiffusionController(BaseController):
         self.horizon = horizon
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
+        # Weights for Cost Function (Matched to NMPC)
+        self.lambda_prod = 1.0
+        self.lambda_track = 1.2 
+        self.lambda_temp = 0.15
+        self.lambda_I = 0.0002
+        self.lambda_lye = 25000.0
+        self.lambda_c = 0.5
+        
+        # Simulator for Rollout
+        self.sim_rollout = MultiStackSimulator(dt=self.dt)
+        
         # Default model path based on type if not provided
         if model_path is None:
-            model_path = r'd:\Projects\AWE\output\multi_stack\diffusion_policy_model_{}.pth'.format(model_type)
+            model_path = r'd:\Projects\AWE\output\multi_stack\best_diffusion_policy_model_{}.pth'.format(model_type)
+      
+        print(f"Loading model from: {model_path}")
         
         # Load Stats
         if not os.path.exists(stats_path):
@@ -64,7 +83,7 @@ class MultiStackDiffusionController(BaseController):
         if model_type == 'flow_matching':
             self.scheduler = FlowMatchingScheduler(device=self.device)
         else:
-            self.scheduler = DDPMScheduler(num_timesteps=100, device=self.device)
+            self.scheduler = DDPMScheduler(device=self.device)
         
         # Internal state for previous action
         # I(4), v_lye(4), v_c(1)
@@ -74,7 +93,7 @@ class MultiStackDiffusionController(BaseController):
         
         # Constraints (from NMPC)
         self.I_min = 0.0
-        self.I_max = 7800.0
+        self.I_max = 7800.0 * 1.2 # 9360.0
         self.v_lye_min = 0.0
         self.v_lye_max = 0.1
         self.v_c_min = 0.0
@@ -146,39 +165,133 @@ class MultiStackDiffusionController(BaseController):
         
         cond_norm = self._prepare_condition(state, P_ref, T_ref)
         
-        # 3. Sample
-        # This is the slow part (100 steps). For real-time control, DDIM or fewer steps is better, 
-        # but we stick to DDPM 100 steps as per current implementation.
-        # Now output is sequence (Batch, Action_Dim, Horizon)
-        samples_norm = self.scheduler.sample(self.model, cond_norm, (1, self.action_dim, self.horizon))
+        # 3. Sample 16 candidates
+        num_candidates = 64
+        # Expand condition for batch processing
+        cond_norm_batch = cond_norm.repeat(num_candidates, 1)
+        
+        # Sample sequence: (Batch, Action_Dim, Horizon)
+        samples_norm = self.scheduler.sample(self.model, cond_norm_batch, (num_candidates, self.action_dim, self.horizon))
         
         # 4. Denormalize
         samples_norm = torch.clamp(samples_norm, -1.0, 1.0)
         
-        # Expand diff/min for broadcasting over horizon (1, 9, 1)
+        # Expand diff/min for broadcasting: (1, 9, 1) -> (Batch, 9, Horizon)
         action_diff_b = self.action_diff.view(1, -1, 1)
         action_min_b = self.action_min.view(1, -1, 1)
         
-        action = ((samples_norm + 1) / 2) * action_diff_b + action_min_b
+        # Denormalized actions: (Batch, 9, Horizon)
+        actions = ((samples_norm + 1) / 2) * action_diff_b + action_min_b
         
-        # Extract first step (index 0 along horizon dim)
-        # Shape (1, 9, Horizon) -> (1, 9)
-        action_0 = action[:, :, 0]
+        # Convert to numpy for rollout evaluation
+        actions_np = actions.cpu().numpy() # Shape: (64, 9, Horizon)
         
-        action_np = action_0.cpu().numpy().flatten()
+        # 5. Rollout and Evaluate Cost
+        best_cost = float('inf')
+        best_idx = 0
+        
+        # Ensure P_ref covers the horizon
+        P_ref_arr = np.array(P_ref)
+        if len(P_ref_arr) < self.horizon:
+            P_ref_eval = np.pad(P_ref_arr, (0, self.horizon - len(P_ref_arr)), 'edge')
+        else:
+            P_ref_eval = P_ref_arr[:self.horizon]
+            
+        for i in range(num_candidates):
+            cost = 0.0
+            
+            # Reset simulator to current state
+            self.sim_rollout.reset(initial_state=state)
+            
+            # Previous actions for smoothness cost
+            # Initial previous action is self.last_action
+            u_prev = self.last_action.copy()
+            I_prev = u_prev[0:4]
+            v_lye_prev = u_prev[4:8]
+            v_c_prev = u_prev[8]
+            
+            # Iterate over horizon
+            for k in range(self.horizon):
+                # Get action for step k: Shape (9,)
+                u_k = actions_np[i, :, k]
+                
+                # Apply Constraints (Clip)
+                u_k[0:4] = np.clip(u_k[0:4], self.I_min, self.I_max)
+                u_k[4:8] = np.clip(u_k[4:8], self.v_lye_min, self.v_lye_max)
+                u_k[8] = np.clip(u_k[8], self.v_c_min, self.v_c_max)
+                
+                I_k = u_k[0:4]
+                v_lye_k = u_k[4:8]
+                v_c_k = u_k[8]
+                
+                # Step Simulator
+                # Note: Simulator step returns NEW state
+                # We need to calculate Power BEFORE or DURING step to match NMPC cost?
+                # NMPC calculates Power based on u_k and current state x_k
+                
+                # Calculate Power and Properties for Cost
+                # Use current state of sim (before step) or let sim step?
+                # NMPC: Power_k = f(x_k, u_k). 
+                # So we use sim.state (which is x_k) and u_k.
+                
+                # Calculate Real Power
+                # Access protected method or reimplement power calc?
+                # Using protected method for consistency
+                curr_state = self.sim_rollout.state
+                T_s_vec = curr_state[1:5]
+                _, U_cell_vec, _ = self.sim_rollout._calculate_electrochemical_properties(I_k, T_s_vec)
+                P_real = np.sum(U_cell_vec * I_k * self.sim_rollout.N_cell)
+                
+                # Step
+                next_state = self.sim_rollout.step(u_k)
+                T_s_vec_next = next_state[1:5]
+                
+                # --- Cost Calculation ---
+                # 1. Power Tracking
+                cost += self.lambda_track * ((P_real - P_ref_eval[k])/1e6)**2
+                
+                # 2. Temperature Regulation (using next state or current? NMPC uses x_k (current) or x_k+1?)
+                # NMPC obj += (T_s_k - T_ref)**2. T_s_k is the decision variable for state at step k.
+                # Usually MPC penalizes deviation over the trajectory.
+                # Let's use next_state (result of action).
+                cost += self.lambda_temp * np.sum((T_s_vec_next - T_ref)**2)
+                
+                # 3. Smoothness
+                dI = I_k - I_prev
+                dv_lye = v_lye_k - v_lye_prev
+                dv_c = v_c_k - v_c_prev
+                
+                cost += self.lambda_I * np.sum(dI**2)
+                cost += self.lambda_lye * np.sum(dv_lye**2)
+                cost += self.lambda_c * (dv_c**2)
+                
+                # Update prev
+                I_prev = I_k
+                v_lye_prev = v_lye_k
+                v_c_prev = v_c_k
+                
+            if cost < best_cost:
+                best_cost = cost
+                best_idx = i
+                
+        # Select Best Action Sequence
+        best_action_seq = actions_np[best_idx] # (9, Horizon)
+        
+        # Extract first step
+        action_0 = best_action_seq[:, 0]
+        
+        # Apply Constraints (again to be sure)
+        action_0[0:4] = np.clip(action_0[0:4], self.I_min, self.I_max)
+        action_0[4:8] = np.clip(action_0[4:8], self.v_lye_min, self.v_lye_max)
+        action_0[8] = np.clip(action_0[8], self.v_c_min, self.v_c_max)
         
         # Update last action
-        self.last_action = action_np
+        self.last_action = action_0
         
         # Unpack
-        I_cmd = action_np[0:4]
-        v_lye_cmd = action_np[4:8]
-        v_c_cmd = action_np[8]
-        
-        # Apply Constraints
-        I_cmd = np.clip(I_cmd, self.I_min, self.I_max)
-        v_lye_cmd = np.clip(v_lye_cmd, self.v_lye_min, self.v_lye_max)
-        v_c_cmd = np.clip(v_c_cmd, self.v_c_min, self.v_c_max)
+        I_cmd = action_0[0:4]
+        v_lye_cmd = action_0[4:8]
+        v_c_cmd = action_0[8]
         
         return I_cmd, v_lye_cmd, v_c_cmd
 

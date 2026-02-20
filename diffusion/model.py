@@ -9,6 +9,23 @@ class SinusoidalPosEmb(nn.Module):
         self.dim = dim
 
     def forward(self, x):
+        # This is a common way to embed time steps in diffusion models.
+        # It maps a scalar t to a vector of dimension dim.
+        # The embedding is periodic with a period of 10000.
+        #
+        # Implements the standard sinusoidal position embedding:
+        # PE(t, 2i)   = sin(t / 10000^(2i / dim))
+        # PE(t, 2i+1) = cos(t / 10000^(2i / dim))
+        #
+        # Where:
+        # t is the time step (scalar)
+        # i is the dimension index (0 <= i < dim/2)
+        # dim is the embedding dimension
+        #
+        # The term `emb` calculated below corresponds to: 1 / 10000^(2i / dim)
+        # which is equivalent to: exp(-2i * log(10000) / dim)
+        # Actually, code uses (dim//2 - 1) in denominator, slightly adjusting the frequency spread.
+
         device = x.device
         half_dim = self.dim // 2
         emb = math.log(10000) / (half_dim - 1)
@@ -139,7 +156,7 @@ class DiffusionTCN(nn.Module):
         obs_dim, 
         horizon=16, 
         hidden_dim=256, 
-        levels=4, 
+        levels=3, 
         kernel_size=3, 
         dropout=0.0,
         ):

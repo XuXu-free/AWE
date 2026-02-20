@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import math
 
 class DDPMScheduler(nn.Module):
-    def __init__(self, num_timesteps=100, beta_start=1e-4, beta_end=0.02, device='cpu'):
+    def __init__(self, num_timesteps=20, beta_start=1e-4, beta_end=0.02, device='cpu'):
         super().__init__()
         self.num_timesteps = num_timesteps
         self.device = device
@@ -81,8 +81,8 @@ class DDPMScheduler(nn.Module):
         else:
             posterior_variance_t = self._extract(self.posterior_variance, t, x.shape)
             noise = torch.randn_like(x)
-            # return model_mean + torch.sqrt(posterior_variance_t) * noise
-            return model_mean
+            return model_mean + torch.sqrt(posterior_variance_t) * noise
+            # return model_mean
 
     def _extract(self, a, t, x_shape):
         batch_size = t.shape[0]

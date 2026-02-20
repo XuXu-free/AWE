@@ -21,9 +21,7 @@ class FlowMatchingScheduler:
         # 2. Sample x_0 (Noise) ~ N(0, 1)
         x_0 = torch.randn_like(x_1)
         
-        # 3. Compute x_t (Interpolation / Optimal Transport Path)
-        # x_t = (1 - (1 - sigma_min) * t) * x_0 + t * x_1
-        # Simplified Conditional Flow Matching (CFM) with Optimal Transport:
+        # 3. Simplified Conditional Flow Matching (CFM) with Optimal Transport:
         # x_t = (1 - t) * x_0 + t * x_1
         # Broadcasting t to match x shape
         if x_1.dim() == 3: # (B, C, L)
@@ -39,18 +37,6 @@ class FlowMatchingScheduler:
         
         # 5. Model Prediction v_theta
         # Model takes (x, t, cond)
-        # Note: Model expects t in specific format? 
-        # TCNDiffusion uses SinusoidalPosEmb which expects (B,) or similar.
-        # But t here is float [0, 1]. 
-        # Diffusion models often use integer timesteps [0, 1000].
-        # We might need to scale t or adjust embedding.
-        # For compatibility with existing SinusoidalPosEmb, we can scale t to [0, 1000] approx
-        # or just pass float if embedding handles it (it usually expects long indices for lookup OR float for sin/cos).
-        # Checking SinusoidalPosEmb: "emb = torch.exp(torch.arange...)" and "emb = x[:, None] * emb[None, :]".
-        # It takes x as input. If x is t (batch,), it works for continuous values too!
-        # So passing t \in [0, 1] is fine, but maybe scale it to e.g. 1000 for better frequency coverage?
-        # Let's scale t * 1000.0 inside the model call or here.
-        # Let's use t * 1000.0 to match the scale of diffusion timesteps roughly.
         
         v_pred = model(x_t, t, cond)
         

@@ -206,7 +206,7 @@ class MultiStackNMPCController(BaseController):
             obj += self.lambda_track * ((Total_Power_k - P_ref[k])/1e6)**2
             
             # 2. Temperature Regulation (All stacks)
-            obj += self.lambda_temp * ca.sum1((T_s_k - T_ref_val)**2)
+            # obj += self.lambda_temp * ca.sum1((T_s_k - T_ref_val)**2)
             
             # 3. Production (Maximize)
             # obj -= self.lambda_prod * ca.sum1(I_k) * 1e-4

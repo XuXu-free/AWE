@@ -228,20 +228,8 @@ class SingleStackSimulator(BaseSimulator):
         
         dT_s_in_dt, dT_s_dt, dT_sep_dt, dT_c_out_dt = self._calculate_thermal_derivatives(I, v_lye, v_c, T_s_in, T_s, T_sep, T_c_out)
         
-        # Get eta_F from electrochemical calc (already done inside thermal derivatives, but we need it here)
-        # To avoid re-calculation, we could refactor _calculate_thermal_derivatives to return it or calculate it before.
-        # For now, let's just calculate it again or optimize _calculate_thermal_derivatives.
-        # Actually, let's calculate it once at the top level.
-        
         Q_ele, U_cell, eta_F = self._calculate_electrochemical_properties(I, T_s)
-        
-        # Recalculate thermal derivatives using known Q_ele if we want to avoid double calc, 
-        # but _calculate_thermal_derivatives calls it internally. 
-        # Ideally we should pass Q_ele etc to _calculate_thermal_derivatives.
-        # However, to minimize changes, let's just accept the small redundancy or refactor thermal.
-        # Let's refactor thermal to take Q_ele as optional or just leave it.
-        # Given the previous tool call modified _calculate_hto_derivatives to take eta_F, we MUST provide it.
-        
+      
         n_dot_H2_an, n_dot_H2_sep_liq, n_dot_H2_sep_gas = self._calculate_hto_derivatives(I, v_lye, n_H2_an, n_H2_sep_liq, n_H2_sep_gas, T_sep, T_s, eta_F)
         
         dxdt = np.array([dT_s_in_dt, dT_s_dt, dT_sep_dt, dT_c_out_dt, n_dot_H2_an, n_dot_H2_sep_liq, n_dot_H2_sep_gas])

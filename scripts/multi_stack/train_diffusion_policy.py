@@ -4,7 +4,7 @@ import sys
 import torch
 import numpy as np
 import csv
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 import torch.optim as optim
 import argparse
 
@@ -55,6 +55,20 @@ class AWEDataset(Dataset):
         def get_col(name):
             return self.data[:, self.col_map[name]]
             
+        self._load_condition_data(get_col, n_samples)
+        self._load_action_data(get_col, n_samples)
+        
+        self.normalize = normalize
+        if self.normalize:
+            self._normalize_data()
+        # Save normalization stats
+        stats_path = os.path.join(r'd:\Projects\AWE\output\multi_stack', 'diffusion_stats.npz')
+        np.savez(stats_path, 
+                 cond_min=self.cond_min, cond_max=self.cond_max,
+                 action_min=self.action_min, action_max=self.action_max)
+        print(f"Stats saved to {stats_path}")
+
+    def _load_condition_data(self, get_col, n_samples):
         # 1. Fill Condition Data
         # T_s_in
         if 'T_s_in' in self.col_map:
@@ -158,7 +172,8 @@ class AWEDataset(Dataset):
                  self.cond_data[:, base_idx+8] = v_c_prev
              else:
                  raise ValueError("Dataset missing v_c_prev or v_c columns")
-        
+
+    def _load_action_data(self, get_col, n_samples):
         # 2. Fill Action Data (Sequence)
         # Action dim: 9. Sequence length: Horizon.
         # Shape: (n_samples, action_dim, horizon) for TCN/FlowMatching
@@ -216,41 +231,40 @@ class AWEDataset(Dataset):
         # Usually Diffusion Policy predicts sequence.
         
         self.action_dim = 9 # Base dimension
+
+    def _normalize_data(self):
+        # Min-Max Normalization
+        self.cond_min = self.cond_data.min(axis=0)
+        self.cond_max = self.cond_data.max(axis=0)
         
-        self.normalize = normalize
-        if self.normalize:
-            # Min-Max Normalization
-            self.cond_min = self.cond_data.min(axis=0)
-            self.cond_max = self.cond_data.max(axis=0)
-            
-            # Handle constant columns (max == min) to avoid div/0
-            diff = self.cond_max - self.cond_min
-            diff[diff < 1e-6] = 1.0 # Prevent division by zero
-            
-            # Action normalization (global min/max across horizon)
-            # Flatten to (N*Horizon, 9) to find min/max
-            flat_actions = self.action_seq_data.transpose(0, 2, 1).reshape(-1, 9)
-            self.action_min = flat_actions.min(axis=0)
-            self.action_max = flat_actions.max(axis=0)
-            
-            act_diff = self.action_max - self.action_min
-            act_diff[act_diff < 1e-6] = 1.0
-            
-            self.cond_data = (self.cond_data - self.cond_min) / diff
-            
-            # Normalize actions to [-1, 1] for diffusion
-            # Expand dims for broadcasting: (1, 9, 1)
-            act_min_b = self.action_min[None, :, None]
-            act_diff_b = act_diff[None, :, None]
-            
-            self.action_seq_data = 2 * ((self.action_seq_data - act_min_b) / act_diff_b) - 1
-            
-            # Save normalization stats
-            stats_path = os.path.join(r'd:\Projects\AWE\output\multi_stack', 'diffusion_stats.npz')
-            np.savez(stats_path, 
-                     cond_min=self.cond_min, cond_max=self.cond_max,
-                     action_min=self.action_min, action_max=self.action_max)
-            print(f"Stats saved to {stats_path}")
+        # Handle constant columns (max == min) to avoid div/0
+        diff = self.cond_max - self.cond_min
+        diff[diff < 1e-6] = 1.0 # Prevent division by zero
+        
+        # Action normalization using Physical Limits
+        # I_max = 7800.0 * 1.2 = 9360.0
+        I_min, I_max = 0.0, 9360.0
+        v_lye_min, v_lye_max = 0.0, 0.1
+        v_c_min, v_c_max = 0.0, 1.0
+        
+        # Construct Action Min/Max vectors (9,)
+        # I(4), v_lye(4), v_c(1)
+        self.action_min = np.array([I_min]*4 + [v_lye_min]*4 + [v_c_min])
+        self.action_max = np.array([I_max]*4 + [v_lye_max]*4 + [v_c_max])
+        
+        act_diff = self.action_max - self.action_min
+        act_diff[act_diff < 1e-6] = 1.0
+        
+        self.cond_data = (self.cond_data - self.cond_min) / diff
+        
+        # Normalize actions to [-1, 1] for diffusion
+        # Expand dims for broadcasting: (1, 9, 1)
+        act_min_b = self.action_min[None, :, None]
+        act_diff_b = act_diff[None, :, None]
+        
+        self.action_seq_data = 2 * ((self.action_seq_data - act_min_b) / act_diff_b) - 1
+        
+       
 
     def __len__(self):
         return len(self.data)
@@ -269,7 +283,8 @@ def train():
     # Configuration
     # Find latest CSV
     output_dir = r"d:\Projects\AWE\output\multi_stack"
-    csv_files = [f for f in os.listdir(output_dir) if f.endswith('.csv') and 'nmpc_data' in f]
+    # Look for nmpc_dataset (generated) or nmpc_data (logs)
+    csv_files = [f for f in os.listdir(output_dir) if f.endswith('.csv') and ('nmpc_dataset' in f)]
     if not csv_files:
         print("No CSV data found!")
         return
@@ -291,7 +306,16 @@ def train():
         return
 
     dataset = AWEDataset(csv_path, horizon=horizon)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    
+    # Split into train and test
+    train_size = int(0.8 * len(dataset))
+    test_size = len(dataset) - train_size
+    train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
+    
+    print(f"Dataset split: {train_size} training samples, {test_size} test samples")
+    
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     
     # Model
     action_dim = dataset.action_dim # 9
@@ -312,8 +336,10 @@ def train():
     
     if args.model_type == 'flow_matching':
         scheduler = FlowMatchingScheduler(device=device)
+        print("Time steps: Continuous [0, 1] (Flow Matching)")
     else:
-        scheduler = DDPMScheduler(num_timesteps=100, device=device)
+        scheduler = DDPMScheduler(device=device)
+        print(f"Time steps: {scheduler.num_timesteps} (DDPM)")
         
     optimizer = optim.Adam(model.parameters(), lr=lr)
     
@@ -321,10 +347,15 @@ def train():
     print("Starting training...")
     model.train()
     
+    # Track best loss
+    best_test_loss = float('inf')
+    loss_history = []
+    
     try:
         for epoch in range(num_epochs):
-            epoch_loss = 0
-            for cond, action in dataloader:
+            model.train()
+            train_loss = 0
+            for cond, action in train_loader:
                 cond = cond.to(device)
                 action = action.to(device) # x_start
                 
@@ -342,15 +373,50 @@ def train():
                 loss.backward()
                 optimizer.step()
                 
-                epoch_loss += loss.item()
-                
-            if (epoch + 1) % 10 == 0:
-                print(f"Epoch {epoch+1}/{num_epochs}, Loss: {epoch_loss / len(dataloader):.6f}")
+                train_loss += loss.item()
+            
+            # Validation
+            model.eval()
+            test_loss = 0
+            with torch.no_grad():
+                for cond, action in test_loader:
+                    cond = cond.to(device)
+                    action = action.to(device)
+                    
+                    if args.model_type == 'flow_matching':
+                        loss = scheduler.compute_loss(model, action, cond)
+                    else:
+                        t = torch.randint(0, scheduler.num_timesteps, (cond.shape[0],), device=device).long()
+                        loss = scheduler.p_losses(model, action, t, cond)
+                    test_loss += loss.item()
+
+            avg_train_loss = train_loss / len(train_loader)
+            avg_test_loss = test_loss / len(test_loader)
+            
+            # Record history
+            loss_history.append([epoch+1, avg_train_loss, avg_test_loss])
+            
+            # Save best model
+            if avg_test_loss < best_test_loss:
+                best_test_loss = avg_test_loss
+                best_model_filename = f'best_diffusion_policy_model_{args.model_type}.pth'
+                torch.save(model.state_dict(), os.path.join(output_dir, best_model_filename))
+            
+            if (epoch + 1) % 10 == 0 or epoch == 0 or (epoch + 1) == num_epochs:
+                print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {avg_train_loss:.6f}, Test Loss: {avg_test_loss:.6f}")
                 
     except KeyboardInterrupt:
         print("\nTraining interrupted by user.")
     finally:
-        # Save model
+        # Save loss history
+        history_path = os.path.join(output_dir, f'loss_history_{args.model_type}.csv')
+        with open(history_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['epoch', 'train_loss', 'test_loss'])
+            writer.writerows(loss_history)
+        print(f"Loss history saved to {history_path}")
+        
+        # Save final model
         model_filename = f'diffusion_policy_model_{args.model_type}.pth'
         torch.save(model.state_dict(), os.path.join(r'd:\Projects\AWE\output\multi_stack', model_filename))
         print(f"Model saved to output/multi_stack/{model_filename}")
