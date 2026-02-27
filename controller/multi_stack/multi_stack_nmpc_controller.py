@@ -4,9 +4,10 @@ import numpy as np
 from ..base_controller import BaseController
 
 class MultiStackNMPCController(BaseController):
-    def __init__(self, dt=60.0, horizon=10):
+    def __init__(self, dt=60.0, N_p=10, dt_sub=0.2):
         self.dt = dt
-        self.N = horizon
+        self.dt_sub = dt_sub
+        self.N_p = N_p
         
         # --- System Parameters (Matched to MultiStackSimulator) ---
         self.n_stacks = 4
@@ -65,7 +66,6 @@ class MultiStackNMPCController(BaseController):
         self.lambda_prod = 1.0
         self.lambda_track = 1.2 # 1e-6 scaling in cost
         self.lambda_temp = 0.15
-        # self.lambda_temp = 0
         self.lambda_I = 0.0002
         self.lambda_lye = 25000.0
         self.lambda_c = 0.5
@@ -78,16 +78,75 @@ class MultiStackNMPCController(BaseController):
         self.last_v_c = 0.0
         self.prev_sol_x = None
 
+    def _dynamics_step(self, T_s_in_k, T_s_k, T_sep_k, T_c_out_k, I_k, v_lye_k, v_c_k):
+        """
+        Calculates the state at the next time step (k+1) given the current state (k) and inputs.
+        Includes sub-stepping for numerical stability.
+        """
+        # Sub-stepping
+        n_sub = int(self.dt / self.dt_sub)
+        
+        T_s_in_sub = T_s_in_k
+        T_s_sub = T_s_k
+        T_sep_sub = T_sep_k
+        T_c_out_sub = T_c_out_k
+        
+        # Pre-calculate Electro-chemical (assume constant over step k)
+        T_K_vec = T_s_k
+        T_C_vec = T_K_vec - 273.15
+        
+        R_ohm = self.r1 + self.r2 * T_K_vec + self.r3 * self.P_sys
+        term_act = self.t1 + self.t2 / T_C_vec + self.t3 / (T_C_vec**2 + 1.0)
+        U_act = self.s * ca.log(ca.fmax(term_act * I_k + 1.0, 1e-6))
+        U_cell = self.U_rev + R_ohm * I_k + U_act
+        V_cell = ca.fmax(U_cell, self.U_rev)
+        
+        # Efficiency
+        f1 = 50.0 + 2.5 * T_C_vec
+        f2 = 0.92 - 6.25e-6 * T_C_vec
+        eta = f2 * (I_k**2) / (I_k**2 + f1 + 1e-6)
+        
+        Q_gen = self.n_cells * I_k * (V_cell - eta * 1.481)
+        
+        # Power Calculation (Needed for constraints/obj)
+        Power_k_vec = V_cell * I_k * self.n_cells
+        
+        for _ in range(n_sub):
+            Q_flow_stacks = self.c_lye * self.rho_lye * v_lye_k * (T_s_sub - T_s_in_sub)
+            Q_diss_stacks = self.h_A_stack * (T_s_sub - self.T_amb)
+            
+            dT_s_dt = (Q_gen - Q_diss_stacks - Q_flow_stacks) / self.C_s_i
+            T_s_sub = T_s_sub + dT_s_dt * self.dt_sub
+            
+            v_tot = ca.sum1(v_lye_k)
+            T_sep_in_val = ca.sum1(v_lye_k * T_s_sub) / (v_tot + 1e-6)
+            
+            Q_sep_diss = 500.0 * (T_sep_sub - self.T_amb)
+            dT_sep_dt = (self.c_lye * self.rho_lye * v_tot * (T_sep_in_val - T_sep_sub) - Q_sep_diss) / self.C_sep
+            T_sep_sub = T_sep_sub + dT_sep_dt * self.dt_sub
+            
+            dT_hot = T_sep_sub - T_c_out_sub
+            Q_hx = self.kA_hx * dT_hot 
+            
+            dT_s_in_dt = (self.c_lye * self.rho_lye * v_tot * (T_sep_sub - T_s_in_sub) - Q_hx) / self.C_he
+            T_s_in_sub = T_s_in_sub + dT_s_in_dt * self.dt_sub
+            
+            dT_c_out_dt = (self.c_cw * self.rho_cw * v_c_k * (self.T_cw_in - T_c_out_sub) + Q_hx) / self.C_c
+            T_c_out_sub = T_c_out_sub + dT_c_out_dt * self.dt_sub
+        
+        return T_s_in_sub, T_s_sub, T_sep_sub, T_c_out_sub, Power_k_vec, V_cell
+
     def _setup_solver(self):
+        import os
         # Decision Variables Structure:
         # At each step k: [I_1..4, v_lye_1..4, v_c] -> 9 variables
         self.n_controls = self.n_stacks * 2 + 1 # 4+4+1 = 9
-        self.U = ca.MX.sym('U', self.n_controls * self.N)
+        self.U = ca.MX.sym('U', self.n_controls * self.N_p)
         
         # Parameters: 
         # [T_s_in, T_s_vec, T_sep, T_c_out, n_H2_an_vec, n_liq, n_gas, T_ref, P_ref(N), I_prev, v_lye_prev, v_c_prev]
         # 13 + 1 + N + 9 parameters
-        self.n_params = 13 + 1 + self.N + self.n_stacks * 2 + 1
+        self.n_params = 13 + 1 + self.N_p + self.n_stacks * 2 + 1
         self.P = ca.MX.sym('P', self.n_params)
         
         # Unpack Initial State
@@ -103,7 +162,7 @@ class MultiStackNMPCController(BaseController):
         n_gas = self.P[p_idx]; p_idx += 1
         
         T_ref_val = self.P[p_idx]; p_idx += 1
-        P_ref = self.P[p_idx : p_idx+self.N]; p_idx += self.N
+        P_ref = self.P[p_idx : p_idx+self.N_p]; p_idx += self.N_p
         
         I_prev = self.P[p_idx : p_idx+self.n_stacks]; p_idx += self.n_stacks
         v_lye_prev = self.P[p_idx : p_idx+self.n_stacks]; p_idx += self.n_stacks
@@ -121,7 +180,7 @@ class MultiStackNMPCController(BaseController):
         ubg = []
         
         # Loop over Horizon
-        for k in range(self.N):
+        for k in range(self.N_p):
             # Extract controls for step k
             uk = self.U[k*self.n_controls : (k+1)*self.n_controls]
             I_k = uk[0 : self.n_stacks]
@@ -129,84 +188,18 @@ class MultiStackNMPCController(BaseController):
             v_c_k = uk[2*self.n_stacks]
             
             # --- System Dynamics (Simplified Thermal Model for Control) ---
-            # Sub-stepping for stability
-            n_sub = 5
-            dt_sub = self.dt / n_sub
+            T_s_in_k, T_s_k, T_sep_k, T_c_out_k, Power_k_vec, V_cell = self._dynamics_step(
+                T_s_in_k, T_s_k, T_sep_k, T_c_out_k, I_k, v_lye_k, v_c_k
+            )
             
-            T_s_in_sub = T_s_in_k
-            T_s_sub = T_s_k
-            T_sep_sub = T_sep_k
-            T_c_out_sub = T_c_out_k
-            
-            # Pre-calculate Electro-chemical (assume constant over step k)
-            # Voltage & Power
-            T_K_vec = T_s_k
-            T_C_vec = T_K_vec - 273.15 # Celsius for correlations
-            
-            R_ohm = self.r1 + self.r2 * T_K_vec + self.r3 * self.P_sys
-            term_act = self.t1 + self.t2 / T_C_vec + self.t3 / (T_C_vec**2 + 1.0) # +1 to avoid div0
-            U_act = self.s * ca.log(ca.fmax(term_act * I_k + 1.0, 1e-6))
-            U_cell = self.U_rev + R_ohm * I_k + U_act
-            V_cell = ca.fmax(U_cell, self.U_rev)
-            
-            Power_k_vec = V_cell * I_k * self.n_cells
             Total_Power_k = ca.sum1(Power_k_vec)
-            
-            # Efficiency
-            f1 = 50.0 + 2.5 * T_C_vec
-            f2 = 0.92 - 6.25e-6 * T_C_vec
-            eta = f2 * (I_k**2) / (I_k**2 + f1 + 1e-6)
-            
-            # Heat Gen
-            Q_gen = self.n_cells * I_k * (V_cell - eta * 1.481)
-            
-            for _ in range(n_sub):
-                # 1. Stack Thermal
-                # Q_flow = c * rho * v * (T_out - T_in)
-                Q_flow_stacks = self.c_lye * self.rho_lye * v_lye_k * (T_s_sub - T_s_in_sub)
-                Q_diss_stacks = self.h_A_stack * (T_s_sub - self.T_amb)
-                
-                dT_s_dt = (Q_gen - Q_diss_stacks - Q_flow_stacks) / self.C_s_i
-                T_s_sub = T_s_sub + dT_s_dt * dt_sub
-                
-                # 2. Separator Thermal
-                v_tot = ca.sum1(v_lye_k)
-                # Weighted average T_sep_in
-                T_sep_in_val = ca.sum1(v_lye_k * T_s_sub) / (v_tot + 1e-6)
-                
-                Q_sep_diss = 500.0 * (T_sep_sub - self.T_amb) # Simplified loss
-                dT_sep_dt = (self.c_lye * self.rho_lye * v_tot * (T_sep_in_val - T_sep_sub) - Q_sep_diss) / self.C_sep
-                T_sep_sub = T_sep_sub + dT_sep_dt * dt_sub
-                
-                # 3. Heat Exchanger
-                # LMTD approx: (T_s_in - T_c_out) vs (T_sep - T_c_in)
-                # Simplified: Q_hx = kA * (T_hot_avg - T_cold_avg) or standard LMTD
-                # Using simpler difference for stability in optimization:
-                # Q_hx = kA * (T_lye_in - T_cw_out) # Conservative?
-                # Better: Q_hx = kA * (T_sep - T_c_out) # Driving force
-                # Let's use linear approx of LMTD
-                dT_hot = T_sep_sub - T_c_out_sub
-                Q_hx = self.kA_hx * dT_hot 
-                # This is a simplification. Real LMTD is hard for NLP.
-                
-                dT_s_in_dt = (self.c_lye * self.rho_lye * v_tot * (T_sep_sub - T_s_in_sub) - Q_hx) / self.C_he
-                T_s_in_sub = T_s_in_sub + dT_s_in_dt * dt_sub
-                
-                dT_c_out_dt = (self.c_cw * self.rho_cw * v_c_k * (self.T_cw_in - T_c_out_sub) + Q_hx) / self.C_c
-                T_c_out_sub = T_c_out_sub + dT_c_out_dt * dt_sub
-                
-            # Update States
-            T_s_k = T_s_sub
-            T_s_in_k = T_s_in_sub
-            T_sep_k = T_sep_sub
-            T_c_out_k = T_c_out_sub
             
             # --- Objective ---
             # 1. Power Tracking
             obj += self.lambda_track * ((Total_Power_k - P_ref[k])/1e6)**2
             
             # 2. Temperature Regulation (All stacks)
-            # obj += self.lambda_temp * ca.sum1((T_s_k - T_ref_val)**2)
+            obj += self.lambda_temp * ca.sum1((T_s_k - T_ref_val)**2)
             
             # 3. Production (Maximize)
             # obj -= self.lambda_prod * ca.sum1(I_k) * 1e-4
@@ -246,7 +239,7 @@ class MultiStackNMPCController(BaseController):
         # Input Bounds
         lbx = []
         ubx = []
-        for k in range(self.N):
+        for k in range(self.N_p):
             # I
             lbx.extend([self.I_min]*self.n_stacks)
             ubx.extend([self.I_max]*self.n_stacks)
@@ -262,9 +255,102 @@ class MultiStackNMPCController(BaseController):
         self.lbg = lbg
         self.ubg = ubg
         
+        # State Function (Extract predicted states)
+        # States: T_s_in, T_s(4), T_sep, T_c_out
+        # Collect states for trajectory output
+        states_traj = []
+        
+        # Re-construct state trajectory using optimal U (Must match the loop above exactly or capture variables)
+        # Since we already have the symbolic variables T_s_k etc. from the loop, we can just collect them.
+        # However, the loop above overwrites T_s_k in each iteration.
+        # We need to modify the loop to store them or recreate the function.
+        # Let's recreate the function to be safe and clean, or we can store them in a list during the loop.
+        
+        # Actually, capturing them during the loop is better.
+        # Let's modify the loop above to store symbolic states.
+        
         nlp = {'x': self.U, 'f': obj, 'g': ca.vertcat(*g), 'p': self.P}
         opts = {'ipopt.print_level': 0, 'print_time': 0, 'ipopt.tol': 1e-4}
-        self.solver = ca.nlpsol('solver', 'ipopt', nlp, opts)
+        
+        print("Setting up solver...")
+        
+        # --- C-Code Generation for Speedup ---
+        solver_name = 'nmpc_solver'
+        c_file = f'{solver_name}.c'
+        dll_file = f'{solver_name}.so' if os.name == 'posix' else f'{solver_name}.dll'
+        
+        solver = ca.nlpsol('solver', 'ipopt', nlp, opts)
+        self.solver = solver
+        
+        # Check if compiled solver exists and load it
+        # if os.path.exists(dll_file):
+        #     # print(f"Loading compiled solver from {dll_file}")
+        #     self.solver = ca.nlpsol('solver', 'ipopt', dll_file, opts)
+        # else:
+        #     print("Compiling NMPC solver...")
+        #     # Generate C code
+        #     solver.generate_dependencies(c_file)
+        #     print(f"C code generated to {c_file}")
+            
+        #     # Compile
+        #     # Requires gcc or cl.exe in path
+        #     import subprocess
+        #     try:
+        #         if os.name == 'posix':
+        #             cmd = f"gcc -fPIC -shared -O1 {c_file} -o {dll_file}"
+        #             subprocess.check_call(cmd.split())
+        #         else:
+        #             # Windows (assuming MSVC or MinGW)
+        #             # Try gcc (MinGW) first
+        #             # Use -O1 instead of -O3 to prevent "out of memory" errors
+        #             cmd = f"gcc -shared -O1 {c_file} -o {dll_file}"
+        #             subprocess.check_call(cmd.split())
+                    
+        #         print(f"Solver compiled to {dll_file}")
+        #         # Load the compiled solver
+        #         self.solver = ca.nlpsol('solver', 'ipopt', dll_file, opts)
+        #     except Exception as e:
+        #         print(f"Compilation failed: {e}. Using JIT solver.")
+        #         self.solver = solver
+        
+        # Create a separate function for state prediction
+        # We need to rebuild the dynamics graph for this function
+        # Inputs: U, P. Outputs: Trajectory of [T_s_in, T_s_1..4, T_sep, T_c_out] (7 vars)
+        
+        pred_states = []
+        
+        # Re-unpack Initial State for Prediction Function
+        p_idx = 0
+        T_s_in_K = self.P[p_idx]; p_idx += 1
+        T_s_K = self.P[p_idx : p_idx+self.n_stacks]; p_idx += self.n_stacks
+        T_sep_K = self.P[p_idx]; p_idx += 1
+        T_c_out_K = self.P[p_idx]; p_idx += 1
+        
+        # Convert to Celsius
+        T_s_in_k = T_s_in_K
+        T_s_k = T_s_K
+        T_sep_k = T_sep_K
+        T_c_out_k = T_c_out_K
+        
+        for k in range(self.N_p):
+            uk = self.U[k*self.n_controls : (k+1)*self.n_controls]
+            I_k = uk[0 : self.n_stacks]
+            v_lye_k = uk[self.n_stacks : 2*self.n_stacks]
+            v_c_k = uk[2*self.n_stacks]
+            
+            # Dynamics (Copy of above)
+            T_s_in_k, T_s_k, T_sep_k, T_c_out_k, _, _ = self._dynamics_step(
+                T_s_in_k, T_s_k, T_sep_k, T_c_out_k, I_k, v_lye_k, v_c_k
+            )
+            
+            # Store State: [T_s_in(1), T_s(4), T_sep(1), T_c_out(1)] -> 7
+            pred_states.append(ca.vertcat(T_s_in_k, T_s_k, T_sep_k, T_c_out_k))
+            
+        # Create a function to simulate/predict the full state trajectory based on inputs (U) and parameters (P)
+        # self.U: Control actions over the horizon
+        # self.P: Initial state and reference parameters
+        # Returns: Concatenated vector of predicted states for each step in the horizon
+        self.state_func = ca.Function('state_func', [self.U, self.P], [ca.vertcat(*pred_states)])
 
     def solve_nmpc(self, state_vec, P_ref_vec, T_ref):
         # Update internal T_ref for logging/reference
@@ -272,8 +358,8 @@ class MultiStackNMPCController(BaseController):
 
         # P_ref_vec should be length N. If scalar, repeat.
         if np.isscalar(P_ref_vec):
-            P_ref_vec = [P_ref_vec] * self.N
-        elif len(P_ref_vec) != self.N:
+            P_ref_vec = [P_ref_vec] * self.N_p
+        elif len(P_ref_vec) != self.N_p:
             # Handle mismatch if any (e.g. pad with last)
             pass 
             
@@ -283,7 +369,7 @@ class MultiStackNMPCController(BaseController):
         x0 = []
         if getattr(self, 'prev_sol_x', None) is not None:
             # Shift previous solution: u[k] = u[k+1], u[N-1] = u[N-1]
-            u_prev = self.prev_sol_x.reshape(self.N, self.n_controls)
+            u_prev = self.prev_sol_x.reshape(self.N_p, self.n_controls)
             u_guess = np.vstack([u_prev[1:], u_prev[-1:]])
             x0 = u_guess.flatten().tolist()
         else:
@@ -291,7 +377,7 @@ class MultiStackNMPCController(BaseController):
             I_est = (P_ref_0 / self.n_stacks) / (2.0 * self.n_cells)
             I_est = max(self.I_min, min(I_est, self.I_max))
             
-            for k in range(self.N):
+            for k in range(self.N_p):
                 x0.extend([I_est]*self.n_stacks)
                 x0.extend(self.last_v_lye.tolist())
                 x0.append(self.last_v_c)
@@ -332,16 +418,16 @@ class MultiStackNMPCController(BaseController):
         else:
             return self.last_I, self.last_v_lye, self.last_v_c
 
-    def get_all_actions(self, state_vec, P_ref_vec, T_ref=358.15):
+    def get_all_actions_states(self, state_vec, P_ref_vec, T_ref=358.15):
         """
-        Returns all optimized actions in the horizon.
-        Output shape: (N, n_controls)
-        n_controls = 9 [I_1..4, v_lye_1..4, v_c]
+        Returns all optimized actions AND predicted states in the horizon.
+        Actions shape: (N, n_controls) [I_1..4, v_lye_1..4, v_c]
+        States shape: (N, n_pred_states) [T_s_in, T_s_1..4, T_sep, T_c_out]
         """
         u_opt = self.solve_nmpc(state_vec, P_ref_vec, T_ref)
         
         if u_opt is not None:
-            # Extract first step for internal state update
+            # Extract first step for internal state update (Side effect: update memory)
             u0 = u_opt[0 : self.n_controls]
             I_cmd = u0[0 : self.n_stacks]
             v_lye_cmd = u0[self.n_stacks : 2*self.n_stacks]
@@ -351,9 +437,46 @@ class MultiStackNMPCController(BaseController):
             self.last_v_lye = v_lye_cmd
             self.last_v_c = v_c_cmd
             
-            # Reshape to (N, n_controls)
-            return u_opt.reshape(self.N, self.n_controls)
+            # 1. Actions
+            actions = u_opt.reshape(self.N_p, self.n_controls)
+            
+            # 2. Predicted States
+            # Re-construct P for state_func (logic from solve_nmpc)
+            # P_ref_vec alignment
+            if np.isscalar(P_ref_vec):
+                P_ref_vec = [P_ref_vec] * self.N_p
+            elif len(P_ref_vec) != self.N_p:
+                pass
+            
+            p = []
+            p.extend(state_vec.flatten().tolist())
+            p.append(self.T_ref)
+            p.extend(P_ref_vec)
+            p.extend(self.last_I.tolist())
+            p.extend(self.last_v_lye.tolist())
+            p.append(self.last_v_c)
+            
+            # Evaluate state function
+            # u_opt is flat, p is list
+            pred_states_vec = self.state_func(u_opt, p).full().flatten()
+            pred_states = pred_states_vec.reshape(self.N_p, 7) # 1+4+1+1=7
+            
+            return actions, pred_states
         else:
             # Return copies of last action repeated
             last_action = np.concatenate([self.last_I, self.last_v_lye, [self.last_v_c]])
-            return np.tile(last_action, (self.N, 1))
+            actions = np.tile(last_action, (self.N_p, 1))
+            
+            # Return current state repeated (best guess if failed)
+            # State vector input: T_s_in(1), T_s_vec(4), T_sep(1), T_c_out(1) ...
+            # Extract relevant thermal states from input state_vec
+            # state_vec: [T_s_in, T_s_vec(4), T_sep, T_c_out, ...]
+            current_thermal = np.concatenate([
+                state_vec[0:1], # T_s_in
+                state_vec[1:5], # T_s_vec
+                state_vec[5:6], # T_sep
+                state_vec[6:7]  # T_c_out
+            ])
+            pred_states = np.tile(current_thermal, (self.N_p, 1))
+            
+            return actions, pred_states

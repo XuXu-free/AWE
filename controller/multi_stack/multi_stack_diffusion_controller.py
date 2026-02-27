@@ -59,10 +59,12 @@ class MultiStackDiffusionController(BaseController):
         self.action_diff[self.action_diff < 1e-6] = 1.0
         
         # Load Model
-        # Action: I(4), v_lye(4), v_c(1) => 9
+        # Action: I(4), v_lye(4), v_c(1) => 9. Or + States => 16.
         # Cond: 33 (13 + 1 + N + 9)
-        self.action_dim = 9
-        self.obs_dim = 1 + 4 + 1 + 1 + 4 + 1 + 1 + 1 + horizon + 9
+        self.action_dim = len(self.action_min)
+        print(f"Detected Action Dim: {self.action_dim}")
+        
+        self.obs_dim = 1 + 4 + 1 + 1 + 4 + 1 + 1 + 1 + horizon + 9 # Fixed 9 for prev action
         
         if model_type == 'mlp':
             self.model = DiffusionMLP(action_dim=self.action_dim, obs_dim=self.obs_dim).to(self.device)
@@ -212,8 +214,9 @@ class MultiStackDiffusionController(BaseController):
             
             # Iterate over horizon
             for k in range(self.horizon):
-                # Get action for step k: Shape (9,)
-                u_k = actions_np[i, :, k]
+                # Get action for step k: Shape (9,) or (16,)
+                u_k_full = actions_np[i, :, k]
+                u_k = u_k_full[:9] # Take only controls
                 
                 # Apply Constraints (Clip)
                 u_k[0:4] = np.clip(u_k[0:4], self.I_min, self.I_max)
@@ -275,10 +278,11 @@ class MultiStackDiffusionController(BaseController):
                 best_idx = i
                 
         # Select Best Action Sequence
-        best_action_seq = actions_np[best_idx] # (9, Horizon)
+        best_action_seq = actions_np[best_idx] # (9, Horizon) or (16, Horizon)
         
         # Extract first step
-        action_0 = best_action_seq[:, 0]
+        action_0_full = best_action_seq[:, 0]
+        action_0 = action_0_full[:9] # Take only controls
         
         # Apply Constraints (again to be sure)
         action_0[0:4] = np.clip(action_0[0:4], self.I_min, self.I_max)

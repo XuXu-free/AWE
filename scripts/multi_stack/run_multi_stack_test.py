@@ -148,7 +148,7 @@ def run_test(controller_type='nmpc', model_type='tcn'):
     sim = MultiStackSimulator(dt=dt)
     
     if controller_type == 'nmpc':
-        ctrl = MultiStackNMPCController(dt=10.0, horizon=10)
+        ctrl = MultiStackNMPCController(dt=10.0, N_p=10)
         print("Using NMPC Controller")
     elif controller_type == 'diffusion':
         ctrl = MultiStackDiffusionController(dt=10.0, horizon=10, model_type=model_type)
@@ -225,7 +225,7 @@ def run_test(controller_type='nmpc', model_type='tcn'):
         # Control
         # Always compute P_future for logging
         P_future = []
-        horizon = ctrl.N if hasattr(ctrl, 'N') else ctrl.horizon
+        horizon = ctrl.N_p if hasattr(ctrl, 'N') else ctrl.horizon
         for k in range(horizon):
             t_future = t + k * ctrl.dt # ctrl.dt = 10.0
             idx_future = int(t_future / dt) # dt = 1.0

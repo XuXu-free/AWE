@@ -4,7 +4,7 @@ from .base_simulator import BaseSimulator
 from scipy.integrate import solve_ivp
 
 class MultiStackSimulator(BaseSimulator):
-    def __init__(self, dt=1.0):
+    def __init__(self, dt=0.02):
         super().__init__(dt)
         # --- Parameters from Table 2 and Paper ---
         self.N = 4

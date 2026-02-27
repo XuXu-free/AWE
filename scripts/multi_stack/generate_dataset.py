@@ -1,12 +1,11 @@
-
 import os
 import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime
-import multiprocessing
 import time
+from tqdm import tqdm
 
 # Add parent directory to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
@@ -14,70 +13,12 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 from plant.multi_stack_simulator import MultiStackSimulator
 from controller.multi_stack.multi_stack_nmpc_controller import MultiStackNMPCController
 
-def generate_profile(length, mode, p_min, p_max):
-    trajectory = np.zeros(length)
-    if mode == 'solar':
-        # Sine wave pattern with noise (Day/Night cycle)
-        period = np.random.randint(400, 800)
-        phase = np.random.uniform(0, 2*np.pi)
-        t = np.arange(length)
-        
-        # Base solar curve: max(0, sin)
-        base = np.sin(2 * np.pi * t / period + phase)
-        base = np.maximum(base, 0)
-        
-        # Scale to power
-        amplitude = np.random.uniform(0.5, 1.0) * (p_max - p_min)
-        trajectory = p_min + base * amplitude
-        
-        # Add cloud noise (random drops)
-        cloud_mask = np.random.choice([0, 1], size=length, p=[0.9, 0.1])
-        cloud_drop = np.random.uniform(0.3, 0.8, size=length)
-        trajectory = trajectory * (1 - cloud_mask * cloud_drop)
-        
-    elif mode == 'wind':
-        # Smoothed Random Walk / Perlin-like
-        current = np.random.uniform(p_min, p_max)
-        for i in range(length):
-            trajectory[i] = current
-            # Change
-            delta = np.random.normal(0, (p_max - p_min) * 0.05)
-            current += delta
-            # Tendency to return to mean
-            mean_p = (p_min + p_max) / 2
-            current += (mean_p - current) * 0.01
-            current = np.clip(current, p_min, p_max)
-            
-    elif mode == 'step':
-        # Step changes
-        current = np.random.uniform(p_min, p_max)
-        steps_to_change = np.random.randint(50, 200)
-        for i in range(length):
-            if steps_to_change <= 0:
-                current = np.random.uniform(p_min, p_max)
-                steps_to_change = np.random.randint(50, 200)
-            trajectory[i] = current
-            steps_to_change -= 1
-            
-    else: # Mixed / Random Walk (Original)
-            # Smooth random walk
-            current = np.random.uniform(p_min, p_max)
-            target = np.random.uniform(p_min, p_max)
-            steps = 0
-            for i in range(length):
-                if steps <= 0:
-                    target = np.random.uniform(p_min, p_max)
-                    steps = np.random.randint(50, 200)
-                
-                move = (target - current) / steps
-                current += move + np.random.normal(0, (p_max - p_min)*0.005)
-                current = np.clip(current, p_min, p_max)
-                trajectory[i] = current
-                steps -= 1
-
-    # Add small measurement noise
-    trajectory += np.random.normal(0, (p_max - p_min)*0.01, size=length)
-    return np.clip(trajectory, p_min, p_max)
+def load_real_profile():
+    profile_path = r'd:\Projects\AWE\output\real_power_profile.csv'
+    if not os.path.exists(profile_path):
+        raise FileNotFoundError(f"Real profile not found at {profile_path}. Run process_real_profile.py first.")
+    df = pd.read_csv(profile_path)
+    return df['P_ref'].values
 
 def randomize_state(sim):
     # Reset to base
@@ -101,207 +42,19 @@ def randomize_state(sim):
     
     return sim
 
-def generate_single_episode(episode_args):
-    episode_idx, steps_per_episode, dt, horizon, P_ref_min, P_ref_max, T_ref = episode_args
-    
-    # Re-seed random number generator for each process
-    np.random.seed(int(time.time() * 1000) % 2**32 + episode_idx)
-    
-    # Stagger start to avoid simultaneous heavy memory allocation
-    time.sleep(np.random.uniform(0.1, 2.0))
-    
-    # Initialize Simulator
-    sim = MultiStackSimulator(dt=dt)
-    
-    # Initialize Controller
-    try:
-        controller = MultiStackNMPCController(dt=dt, horizon=horizon)
-    except Exception as e:
-        print(f"Failed to initialize controller for episode {episode_idx}: {e}")
-        return [], np.zeros(steps_per_episode)
-
-    # Storage
-    data_list = []
-    
-    # 1. Select Profile
-    profile_type = np.random.choice(['solar', 'wind', 'step', 'mixed'])
-    # Generate trajectory with extra horizon
-    traj_len = steps_per_episode + horizon + 10
-    P_ref_trajectory = generate_profile(traj_len, profile_type, P_ref_min, P_ref_max)
-    
-    # 2. Randomize Initial Condition
-    randomize_state(sim)
-    
-    # Reset Controller State
-    controller.prev_sol_x = None
-    controller.last_I = np.zeros(4)
-    controller.last_v_lye = np.ones(4) * 0.03
-    controller.last_v_c = 0.0
-    
-    # Reset Action History for logging
-    I_prev = np.zeros(4)
-    v_lye_prev = np.zeros(4)
-    v_c_prev = 0.0
-    
-    # 3. Episode Loop
-    for t in range(steps_per_episode):
-        # Current State (Before Step)
-        current_state = sim.state.copy()
+def save_and_plot(data_list, output_dir, timestamp):
+    if not data_list:
+        return
         
-        T_s_in = current_state[0]
-        T_s_vec = current_state[1:5]
-        T_sep = current_state[5]
-        T_c_out = current_state[6]
-        n_H2_an_vec = current_state[7:11]
-        n_liq = current_state[11]
-        n_gas = current_state[12]
-        
-        # 1. Get P_ref
-        current_P_ref = P_ref_trajectory[t]
-        
-        # Future P_ref
-        P_ref_future = []
-        for h in range(horizon):
-            future_val = P_ref_trajectory[t + 1 + h]
-            # Add forecast noise (NMPC sees noisy forecast)
-            noise_std = 0.02e6 * (h + 1)
-            pred_val = future_val + np.random.normal(0, noise_std)
-            P_ref_future.append(np.clip(pred_val, P_ref_min, P_ref_max))
-
-        # 2. Determine Action via NMPC
-        try:
-            u_opt_matrix = controller.get_all_actions(current_state, P_ref_future, T_ref)
-        except Exception as e:
-            print(f"NMPC failed at episode {episode_idx} step {t}: {e}")
-            break
-            
-        # Extract first action for execution
-        u0 = u_opt_matrix[0]
-        I_cmd = u0[0:4]
-        v_lye_cmd = u0[4:8]
-        v_c_cmd = u0[8]
-        
-        # 3. Calculate derived properties
-        _, U_cell_vec, _ = sim._calculate_electrochemical_properties(I_cmd, T_s_vec)
-        P_real = np.sum(I_cmd * U_cell_vec * sim.N_cell)
-        
-        V_sep_gas = 2.0
-        p_sys = 1.6e6
-        R = 8.314
-        hto_val = (n_gas * R * T_sep) / (p_sys * V_sep_gas) * 100.0
-        
-        H2_rate_vec = sim.N_cell * I_cmd / (2 * 96485.0)
-        H2_rate_total = np.sum(H2_rate_vec)
-        
-        # 4. Step Simulator
-        sim.step(np.concatenate([I_cmd, v_lye_cmd, [v_c_cmd]]))
-        
-        # 5. Store Data
-        # Note: 't' here is relative to episode. We will adjust it in aggregation.
-        row = {
-            'episode': episode_idx,
-            'step': t,
-            'P_ref': current_P_ref,
-            'P_real': P_real,
-            'T_s_in': T_s_in,
-            'T_sep': T_sep,
-            'T_c_out': T_c_out,
-            'n_liq': n_liq,
-            'n_gas': n_gas,
-            'T_ref': T_ref,
-            'v_c_prev': v_c_prev,
-            'v_c': v_c_cmd,
-            'HTO': hto_val,
-            'H2_rate': H2_rate_total,
-            # Vectors
-            'T_s_1': T_s_vec[0], 'T_s_2': T_s_vec[1], 'T_s_3': T_s_vec[2], 'T_s_4': T_s_vec[3],
-            'n_H2_an_1': n_H2_an_vec[0], 'n_H2_an_2': n_H2_an_vec[1], 'n_H2_an_3': n_H2_an_vec[2], 'n_H2_an_4': n_H2_an_vec[3],
-            'I_prev_1': I_prev[0], 'I_prev_2': I_prev[1], 'I_prev_3': I_prev[2], 'I_prev_4': I_prev[3],
-            'v_lye_prev_1': v_lye_prev[0], 'v_lye_prev_2': v_lye_prev[1], 'v_lye_prev_3': v_lye_prev[2], 'v_lye_prev_4': v_lye_prev[3],
-            'I_1': I_cmd[0], 'I_2': I_cmd[1], 'I_3': I_cmd[2], 'I_4': I_cmd[3],
-            'v_lye_1': v_lye_cmd[0], 'v_lye_2': v_lye_cmd[1], 'v_lye_3': v_lye_cmd[2], 'v_lye_4': v_lye_cmd[3],
-            'U_cell_1': U_cell_vec[0], 'U_cell_2': U_cell_vec[1], 'U_cell_3': U_cell_vec[2], 'U_cell_4': U_cell_vec[3]
-        }
-        
-        # Save NMPC Plan
-        for k in range(horizon):
-            row[f'P_ref_future_{k}'] = P_ref_future[k]
-            u_k = u_opt_matrix[k]
-            for i in range(4):
-                row[f'plan_step_{k}_I_{i+1}'] = u_k[i]
-            for i in range(4):
-                row[f'plan_step_{k}_v_lye_{i+1}'] = u_k[4+i]
-            row[f'plan_step_{k}_v_c'] = u_k[8]
-            
-        data_list.append(row)
-        
-        # Update history
-        I_prev = I_cmd
-        v_lye_prev = v_lye_cmd
-        v_c_prev = v_c_cmd
-        
-    print(f"Episode {episode_idx+1} ({profile_type}) done.")
-    return data_list, P_ref_trajectory[:steps_per_episode]
-
-def generate_dataset():
-    # Configuration
-    num_episodes = 50
-    steps_per_episode = 2000 
-    dt = 1.0
-    output_dir = r"d:\Projects\AWE\output\multi_stack"
+    df = pd.DataFrame(data_list)
     
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = os.path.join(output_dir, f"nmpc_dataset_{timestamp}.csv")
-    
-    # Constraints
-    P_ref_min, P_ref_max = 2.0e6, 40.0e6
-    T_ref = 358.15
-    horizon = 10
-    
-    print(f"Generating {num_episodes} episodes of {steps_per_episode} steps each using NMPC in PARALLEL...")
-    
-    # Prepare arguments
-    tasks = []
-    for i in range(num_episodes):
-        tasks.append((i, steps_per_episode, dt, horizon, P_ref_min, P_ref_max, T_ref))
-        
-    # Parallel Execution
-    # Determine CPU count
-    num_cores = multiprocessing.cpu_count()
-    # Limit to a safe number of workers to avoid memory exhaustion (std::bad_alloc)
-    # CasADi/IPOPT instances are heavy.
-    num_workers = min(4, max(1, num_cores - 2)) 
-    print(f"Using {num_workers} worker processes.")
-    
-    all_data = []
-    all_P_ref_trajectories = []
-    
-    # Use multiprocessing.Pool
-    # Note: On Windows, this must be protected by if __name__ == "__main__"
-    with multiprocessing.Pool(processes=num_workers) as pool:
-        results = pool.map(generate_single_episode, tasks)
-        
-    # Aggregation
-    print("Aggregating results...")
-    total_step_counter = 0
-    
-    for episode_data, trajectory in results:
-        all_P_ref_trajectories.append(trajectory)
-        for row in episode_data:
-            row['t'] = total_step_counter * dt
-            total_step_counter += 1
-        all_data.extend(episode_data)
-        
-    # Save to CSV
-    df = pd.DataFrame(all_data)
-    df.to_csv(output_file, index=False)
-    print(f"Dataset generated at: {output_file}")
+    # Save CSV
+    csv_file = os.path.join(output_dir, f"nmpc_dataset_{timestamp}.csv")
+    df.to_csv(csv_file, index=False)
+    print(f"Dataset saved to: {csv_file}")
     
     # Plot distributions
-    print("Generating distribution plots...")
+    print("Generating plots...")
     plt.figure(figsize=(20, 15))
     
     # Define variables to plot
@@ -317,44 +70,221 @@ def generate_dataset():
     for i, (col, label) in enumerate(plot_vars):
         plt.subplot(3, 3, i+1)
         if col in df.columns:
-            plt.hist(df[col], bins=50, alpha=0.7, color='blue', edgecolor='black')
-            plt.title(f'Distribution of {label}')
-            plt.xlabel(label)
-            plt.ylabel('Count')
+            # Time series plot instead of histogram for continuous run
+            plt.plot(df['time']/3600, df[col], color='blue', alpha=0.7)
+            plt.title(f'{label} over Time')
+            plt.xlabel('Time (h)')
+            plt.ylabel(label)
             plt.grid(True, alpha=0.3)
         else:
             plt.text(0.5, 0.5, f'{col} not found', ha='center')
             
     plt.tight_layout()
-    plot_file = os.path.join(output_dir, f"nmpc_dataset_dist_{timestamp}.png")
+    plot_file = os.path.join(output_dir, f"diffusion_data_{timestamp}.png")
     plt.savefig(plot_file)
-    print(f"Distribution plots saved to: {plot_file}")
+    print(f"Plots saved to: {plot_file}")
     plt.close()
 
-    # Plot P_ref trajectories collection
-    print("Generating P_ref trajectory collection plot...")
-    plt.figure(figsize=(12, 6))
+def load_monthly_profiles():
+    import glob
+    base_dir = r'd:\Projects\AWE\output\power\wind'
+    # Modified to only load January 2025 data
+    pattern = os.path.join(base_dir, 'wind_power_2025-01_1min.csv')
+    files = sorted(glob.glob(pattern))
     
-    traj_array = np.array(all_P_ref_trajectories)
-    
-    # Plot individual trajectories
-    for i in range(len(all_P_ref_trajectories)):
-        plt.plot(all_P_ref_trajectories[i]/1e6, color='blue', alpha=0.1)
+    if not files:
+        raise FileNotFoundError(f"No monthly profiles found in {base_dir} matching pattern {pattern}")
         
-    mean_traj = np.mean(traj_array, axis=0)
-    plt.plot(mean_traj/1e6, 'r--', linewidth=2, label='Mean Profile')
+    print(f"Found {len(files)} monthly profile files: {[os.path.basename(f) for f in files]}")
     
-    plt.title(f'Generated P_ref Trajectories (N={num_episodes})')
-    plt.xlabel('Step')
-    plt.ylabel('Power Reference (MW)')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
+    # Concatenate all profiles
+    all_profiles = []
+    for f in files:
+        df = pd.read_csv(f)
+        all_profiles.append(df['P_ref'].values)
+        
+    full_profile = np.concatenate(all_profiles)
+    return full_profile
+
+def generate_dataset():
+    # Configuration
+    # dt_ctrl = 1 min = 60 s
+    dt_ctrl = 60.0
+    output_dir = r"d:\Projects\AWE\output\multi_stack\dataset"
     
-    pref_plot_file = os.path.join(output_dir, f"nmpc_dataset_pref_collection_{timestamp}.png")
-    plt.savefig(pref_plot_file)
-    print(f"P_ref collection plot saved to: {pref_plot_file}")
-    plt.close()
+    # NMPC parameters
+    horizon = 5
+    sim_dt = 0.2 # 0.2s simulation step
+    T_ref = 353.15  # 80°C
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Load Real Profile
+    try:
+        full_profile = load_monthly_profiles()
+    except FileNotFoundError as e:
+        print(e)
+        return
+
+
+    # Total steps to run
+    # We stop early if horizon exceeds data
+    total_steps = len(full_profile) - horizon
+    
+    print(f"Loaded profile with {len(full_profile)} points.")
+    print(f"Generating dataset for {total_steps} steps (approx {total_steps * dt_ctrl / 3600:.1f} hours).")
+    
+    # Initialize Simulator
+    # Simulator runs at fine time step (e.g. 0.2s)
+    sim = MultiStackSimulator(dt=sim_dt)
+    
+    # Initialize Controller with Control Interval
+    try:
+        controller = MultiStackNMPCController(dt=dt_ctrl, N_p=horizon, dt_sub=sim_dt)
+    except Exception as e:
+        print(f"Failed to initialize controller: {e}")
+        return
+
+    # Storage
+    data_list = []
+    
+    # Randomize Initial Condition ONCE
+    randomize_state(sim)
+    
+    # Reset Controller State
+    controller.prev_sol_x = None
+    controller.last_I = np.zeros(4)
+    controller.last_v_lye = np.ones(4) * 0.03
+    controller.last_v_c = 0.0
+    
+    # Reset Action History for logging
+    I_prev = np.zeros(4)
+    v_lye_prev = np.zeros(4)
+    v_c_prev = 0.0
+    
+    try:
+        # Main Loop with Progress Bar
+        for t in tqdm(range(total_steps), desc="Generating Dataset"):
+            # Current State (At beginning of interval)
+            current_state = sim.state.copy()
+            
+            T_s_in = current_state[0]
+            T_s_vec = current_state[1:5]
+            T_sep = current_state[5]
+            T_c_out = current_state[6]
+            n_H2_an_vec = current_state[7:11]
+            n_liq = current_state[11]
+            n_gas = current_state[12]
+            
+            # 1. Get P_ref (Current target for this interval)
+            current_P_ref = full_profile[t]
+            
+            # Future P_ref (Next N intervals)
+            P_ref_future = []
+            for h in range(horizon):
+                future_val = full_profile[t + h] 
+                P_ref_future.append(future_val)
+
+            # 2. Determine Action via NMPC
+            try:
+                u_opt_matrix, states_matrix = controller.get_all_actions_states(current_state, P_ref_future, T_ref)
+            except Exception as e:
+                print(f"NMPC failed at step {t}: {e}")
+                break
+                
+            # Extract first action for execution
+            u0 = u_opt_matrix[0]
+            I_cmd = u0[0:4]
+            v_lye_cmd = u0[4:8]
+            v_c_cmd = u0[8]
+            
+            # 3. Calculate derived properties (Instantaneous at start)
+            _, U_cell_vec, _ = sim._calculate_electrochemical_properties(I_cmd, T_s_vec)
+            P_real = np.sum(I_cmd * U_cell_vec * sim.N_cell)
+            
+            V_sep_gas = 2.0
+            p_sys = 1.6e6
+            R = 8.314
+            hto_val = (n_gas * R * T_sep) / (p_sys * V_sep_gas) * 100.0
+            
+            H2_rate_vec = sim.N_cell * I_cmd / (2 * 96485.0)
+            H2_rate_total = np.sum(H2_rate_vec)
+            
+            # 4. Step Simulator (Integrate over Control Interval)
+            # dt_ctrl = 60s, sim_dt = 0.2s -> 300 steps
+            sim_steps = int(dt_ctrl / sim_dt)
+            action_sim = np.concatenate([I_cmd, v_lye_cmd, [v_c_cmd]])
+            
+            for _ in range(sim_steps):
+                sim.step(action_sim)
+            
+            # 5. Store Data (Snapshot at start of interval)
+            # Note: 't' here is step index.
+            row = {
+                'step': t,
+                'time': t * dt_ctrl,
+                'P_ref': current_P_ref,
+                'P_real': P_real,
+                'T_s_in': T_s_in,
+                'T_sep': T_sep,
+                'T_c_out': T_c_out,
+                'n_liq': n_liq,
+                'n_gas': n_gas,
+                'T_ref': T_ref,
+                'v_c_prev': v_c_prev,
+                'v_c': v_c_cmd,
+                'HTO': hto_val,
+                'H2_rate': H2_rate_total,
+                # Vectors
+                'T_s_1': T_s_vec[0], 'T_s_2': T_s_vec[1], 'T_s_3': T_s_vec[2], 'T_s_4': T_s_vec[3],
+                'n_H2_an_1': n_H2_an_vec[0], 'n_H2_an_2': n_H2_an_vec[1], 'n_H2_an_3': n_H2_an_vec[2], 'n_H2_an_4': n_H2_an_vec[3],
+                'I_prev_1': I_prev[0], 'I_prev_2': I_prev[1], 'I_prev_3': I_prev[2], 'I_prev_4': I_prev[3],
+                'v_lye_prev_1': v_lye_prev[0], 'v_lye_prev_2': v_lye_prev[1], 'v_lye_prev_3': v_lye_prev[2], 'v_lye_prev_4': v_lye_prev[3],
+                'I_1': I_cmd[0], 'I_2': I_cmd[1], 'I_3': I_cmd[2], 'I_4': I_cmd[3],
+                'v_lye_1': v_lye_cmd[0], 'v_lye_2': v_lye_cmd[1], 'v_lye_3': v_lye_cmd[2], 'v_lye_4': v_lye_cmd[3],
+                'U_cell_1': U_cell_vec[0], 'U_cell_2': U_cell_vec[1], 'U_cell_3': U_cell_vec[2], 'U_cell_4': U_cell_vec[3]
+            }
+            
+            # Save NMPC Plan
+            for k in range(horizon):
+                row[f'P_ref_future_{k}'] = P_ref_future[k]
+                u_k = u_opt_matrix[k]
+                s_k = states_matrix[k]
+                
+                # Actions
+                for i in range(4):
+                    row[f'plan_step_{k}_I_{i+1}'] = u_k[i]
+                for i in range(4):
+                    row[f'plan_step_{k}_v_lye_{i+1}'] = u_k[4+i]
+                row[f'plan_step_{k}_v_c'] = u_k[8]
+                
+                # States [T_s_in, T_s_1..4, T_sep, T_c_out]
+                # s_k indices: 0: T_s_in, 1-4: T_s, 5: T_sep, 6: T_c_out
+                row[f'plan_step_{k}_state_T_s_in'] = s_k[0]
+                for i in range(4):
+                    row[f'plan_step_{k}_state_T_s_{i+1}'] = s_k[1+i]
+                row[f'plan_step_{k}_state_T_sep'] = s_k[5]
+                row[f'plan_step_{k}_state_T_c_out'] = s_k[6]
+                
+            data_list.append(row)
+            
+            # Update history
+            I_prev = I_cmd
+            v_lye_prev = v_lye_cmd
+            v_c_prev = v_c_cmd
+            
+            # Periodic save
+            if (t + 1) % 1000 == 0:
+                save_and_plot(data_list, output_dir, timestamp)
+                
+    except KeyboardInterrupt:
+        print("\nDataset generation interrupted by user.")
+    finally:
+        # Final save
+        save_and_plot(data_list, output_dir, timestamp)
 
 if __name__ == "__main__":
-    multiprocessing.freeze_support()
     generate_dataset()

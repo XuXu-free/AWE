@@ -47,8 +47,9 @@ class AWEDataset(Dataset):
         self.cond_dim = 1 + 4 + 1 + 1 + 4 + 1 + 1 + 1 + self.horizon + 4 + 4 + 1
         self.cond_data = np.zeros((n_samples, self.cond_dim))
         
-        # Action: I(4), v_lye(4), v_c(1)
-        self.action_dim = 4 + 4 + 1
+        # Action: I(4), v_lye(4), v_c(1) + States(7)
+        # States: T_s_in(1), T_s(4), T_sep(1), T_c_out(1)
+        self.action_dim = 4 + 4 + 1 + 1 + 4 + 1 + 1 # 16
         self.action_data = np.zeros((n_samples, self.action_dim))
         
         # Helper to get column data
@@ -175,13 +176,14 @@ class AWEDataset(Dataset):
 
     def _load_action_data(self, get_col, n_samples):
         # 2. Fill Action Data (Sequence)
-        # Action dim: 9. Sequence length: Horizon.
+        # Action dim: 16 (9 controls + 7 states). Sequence length: Horizon.
         # Shape: (n_samples, action_dim, horizon) for TCN/FlowMatching
         
-        self.action_seq_data = np.zeros((n_samples, 9, self.horizon))
+        self.action_seq_data = np.zeros((n_samples, 16, self.horizon))
         
         # We need to reconstruct the plan from the dataset columns
         # Columns format: plan_step_{k}_I_{i}, plan_step_{k}_v_lye_{i}, plan_step_{k}_v_c
+        # And States: plan_step_{k}_state_T_s_in, plan_step_{k}_state_T_s_{i}, plan_step_{k}_state_T_sep, plan_step_{k}_state_T_c_out
         
         # Check if plan columns exist
         if 'plan_step_0_I_1' in self.col_map:
@@ -202,6 +204,33 @@ class AWEDataset(Dataset):
                 col_name = f'plan_step_{k}_v_c'
                 if col_name in self.col_map:
                     self.action_seq_data[:, 8, k] = get_col(col_name)
+                
+                # States (7)
+                # T_s_in (1) -> index 9
+                col_name = f'plan_step_{k}_state_T_s_in'
+                if col_name in self.col_map:
+                    self.action_seq_data[:, 9, k] = get_col(col_name)
+                else:
+                    # Fallback if missing (e.g. old dataset)
+                    # Use cond T_s_in if k=0? Or just 0.
+                    pass
+                
+                # T_s (4) -> indices 10-13
+                for i in range(4):
+                    col_name = f'plan_step_{k}_state_T_s_{i+1}'
+                    if col_name in self.col_map:
+                        self.action_seq_data[:, 10+i, k] = get_col(col_name)
+                
+                # T_sep (1) -> index 14
+                col_name = f'plan_step_{k}_state_T_sep'
+                if col_name in self.col_map:
+                    self.action_seq_data[:, 14, k] = get_col(col_name)
+                    
+                # T_c_out (1) -> index 15
+                col_name = f'plan_step_{k}_state_T_c_out'
+                if col_name in self.col_map:
+                    self.action_seq_data[:, 15, k] = get_col(col_name)
+                    
         else:
             # Fallback for old datasets (just repeat single action or shift?)
             # For strict training, maybe raise error or warn.
@@ -224,13 +253,30 @@ class AWEDataset(Dataset):
             # v_c (1)
             if 'v_c' in self.col_map:
                 self.action_seq_data[:, 8, :] = get_col('v_c')[:, None]
+                
+            # Fill states with current states repeated?
+            # T_s_in
+            if 'T_s_in' in self.col_map:
+                self.action_seq_data[:, 9, :] = get_col('T_s_in')[:, None]
+            # T_s
+            if 'T_s_1' in self.col_map:
+                self.action_seq_data[:, 10, :] = get_col('T_s_1')[:, None]
+                self.action_seq_data[:, 11, :] = get_col('T_s_2')[:, None]
+                self.action_seq_data[:, 12, :] = get_col('T_s_3')[:, None]
+                self.action_seq_data[:, 13, :] = get_col('T_s_4')[:, None]
+            # T_sep
+            if 'T_sep' in self.col_map:
+                self.action_seq_data[:, 14, :] = get_col('T_sep')[:, None]
+            # T_c_out
+            if 'T_c_out' in self.col_map:
+                self.action_seq_data[:, 15, :] = get_col('T_c_out')[:, None]
 
         # For MLP, we might still want flattened or single step. 
         # But user asked for "actions sequence".
         # If model is MLP, we might need to flatten or just predict first step?
         # Usually Diffusion Policy predicts sequence.
         
-        self.action_dim = 9 # Base dimension
+        self.action_dim = 16 # Total dimension
 
     def _normalize_data(self):
         # Min-Max Normalization
@@ -247,10 +293,14 @@ class AWEDataset(Dataset):
         v_lye_min, v_lye_max = 0.0, 0.1
         v_c_min, v_c_max = 0.0, 1.0
         
-        # Construct Action Min/Max vectors (9,)
-        # I(4), v_lye(4), v_c(1)
-        self.action_min = np.array([I_min]*4 + [v_lye_min]*4 + [v_c_min])
-        self.action_max = np.array([I_max]*4 + [v_lye_max]*4 + [v_c_max])
+        # Construct Action Min/Max vectors (16,)
+        # I(4), v_lye(4), v_c(1), T_s_in(1), T_s(4), T_sep(1), T_c_out(1)
+        
+        state_mins = [280.0] + [280.0]*4 + [280.0] + [280.0] # Generous bounds
+        state_maxs = [380.0] + [380.0]*4 + [380.0] + [380.0]
+        
+        self.action_min = np.array([I_min]*4 + [v_lye_min]*4 + [v_c_min] + state_mins)
+        self.action_max = np.array([I_max]*4 + [v_lye_max]*4 + [v_c_max] + state_maxs)
         
         act_diff = self.action_max - self.action_min
         act_diff[act_diff < 1e-6] = 1.0
@@ -258,7 +308,7 @@ class AWEDataset(Dataset):
         self.cond_data = (self.cond_data - self.cond_min) / diff
         
         # Normalize actions to [-1, 1] for diffusion
-        # Expand dims for broadcasting: (1, 9, 1)
+        # Expand dims for broadcasting: (1, 16, 1)
         act_min_b = self.action_min[None, :, None]
         act_diff_b = act_diff[None, :, None]
         
@@ -282,7 +332,7 @@ def train():
 
     # Configuration
     # Find latest CSV
-    output_dir = r"d:\Projects\AWE\output\multi_stack"
+    output_dir = r"d:\Projects\AWE\output\multi_stack\dataset"
     # Look for nmpc_dataset (generated) or nmpc_data (logs)
     csv_files = [f for f in os.listdir(output_dir) if f.endswith('.csv') and ('nmpc_dataset' in f)]
     if not csv_files:
@@ -400,7 +450,11 @@ def train():
             if avg_test_loss < best_test_loss:
                 best_test_loss = avg_test_loss
                 best_model_filename = f'best_diffusion_policy_model_{args.model_type}.pth'
-                torch.save(model.state_dict(), os.path.join(output_dir, best_model_filename))
+                
+                model_dir = os.path.join(r'd:\Projects\AWE\output\multi_stack', 'model')
+                if not os.path.exists(model_dir):
+                    os.makedirs(model_dir)
+                torch.save(model.state_dict(), os.path.join(model_dir, best_model_filename))
             
             if (epoch + 1) % 10 == 0 or epoch == 0 or (epoch + 1) == num_epochs:
                 print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {avg_train_loss:.6f}, Test Loss: {avg_test_loss:.6f}")
@@ -417,9 +471,13 @@ def train():
         print(f"Loss history saved to {history_path}")
         
         # Save final model
+        model_dir = os.path.join(r'd:\Projects\AWE\output\multi_stack', 'model')
+        if not os.path.exists(model_dir):
+            os.makedirs(model_dir)
+            
         model_filename = f'diffusion_policy_model_{args.model_type}.pth'
-        torch.save(model.state_dict(), os.path.join(r'd:\Projects\AWE\output\multi_stack', model_filename))
-        print(f"Model saved to output/multi_stack/{model_filename}")
+        torch.save(model.state_dict(), os.path.join(model_dir, model_filename))
+        print(f"Model saved to output/multi_stack/model/{model_filename}")
 
 if __name__ == "__main__":
     train()
