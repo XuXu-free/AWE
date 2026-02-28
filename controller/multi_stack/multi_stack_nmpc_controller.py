@@ -4,10 +4,10 @@ import numpy as np
 from ..base_controller import BaseController
 
 class MultiStackNMPCController(BaseController):
-    def __init__(self, dt=60.0, N_p=10, dt_sub=0.2):
+    def __init__(self, dt=60.0, horizon=10, dt_sub=0.2):
         self.dt = dt
         self.dt_sub = dt_sub
-        self.N_p = N_p
+        self.horizon = horizon
         
         # --- System Parameters (Matched to MultiStackSimulator) ---
         self.n_stacks = 4
@@ -141,12 +141,12 @@ class MultiStackNMPCController(BaseController):
         # Decision Variables Structure:
         # At each step k: [I_1..4, v_lye_1..4, v_c] -> 9 variables
         self.n_controls = self.n_stacks * 2 + 1 # 4+4+1 = 9
-        self.U = ca.MX.sym('U', self.n_controls * self.N_p)
+        self.U = ca.MX.sym('U', self.n_controls * self.horizon)
         
         # Parameters: 
         # [T_s_in, T_s_vec, T_sep, T_c_out, n_H2_an_vec, n_liq, n_gas, T_ref, P_ref(N), I_prev, v_lye_prev, v_c_prev]
         # 13 + 1 + N + 9 parameters
-        self.n_params = 13 + 1 + self.N_p + self.n_stacks * 2 + 1
+        self.n_params = 13 + 1 + self.horizon + self.n_stacks * 2 + 1
         self.P = ca.MX.sym('P', self.n_params)
         
         # Unpack Initial State
@@ -162,7 +162,7 @@ class MultiStackNMPCController(BaseController):
         n_gas = self.P[p_idx]; p_idx += 1
         
         T_ref_val = self.P[p_idx]; p_idx += 1
-        P_ref = self.P[p_idx : p_idx+self.N_p]; p_idx += self.N_p
+        P_ref = self.P[p_idx : p_idx+self.horizon]; p_idx += self.horizon
         
         I_prev = self.P[p_idx : p_idx+self.n_stacks]; p_idx += self.n_stacks
         v_lye_prev = self.P[p_idx : p_idx+self.n_stacks]; p_idx += self.n_stacks
@@ -180,7 +180,7 @@ class MultiStackNMPCController(BaseController):
         ubg = []
         
         # Loop over Horizon
-        for k in range(self.N_p):
+        for k in range(self.horizon):
             # Extract controls for step k
             uk = self.U[k*self.n_controls : (k+1)*self.n_controls]
             I_k = uk[0 : self.n_stacks]
@@ -239,7 +239,7 @@ class MultiStackNMPCController(BaseController):
         # Input Bounds
         lbx = []
         ubx = []
-        for k in range(self.N_p):
+        for k in range(self.horizon):
             # I
             lbx.extend([self.I_min]*self.n_stacks)
             ubx.extend([self.I_max]*self.n_stacks)
@@ -332,7 +332,7 @@ class MultiStackNMPCController(BaseController):
         T_sep_k = T_sep_K
         T_c_out_k = T_c_out_K
         
-        for k in range(self.N_p):
+        for k in range(self.horizon):
             uk = self.U[k*self.n_controls : (k+1)*self.n_controls]
             I_k = uk[0 : self.n_stacks]
             v_lye_k = uk[self.n_stacks : 2*self.n_stacks]
@@ -358,8 +358,8 @@ class MultiStackNMPCController(BaseController):
 
         # P_ref_vec should be length N. If scalar, repeat.
         if np.isscalar(P_ref_vec):
-            P_ref_vec = [P_ref_vec] * self.N_p
-        elif len(P_ref_vec) != self.N_p:
+            P_ref_vec = [P_ref_vec] * self.horizon
+        elif len(P_ref_vec) != self.horizon:
             # Handle mismatch if any (e.g. pad with last)
             pass 
             
@@ -369,7 +369,7 @@ class MultiStackNMPCController(BaseController):
         x0 = []
         if getattr(self, 'prev_sol_x', None) is not None:
             # Shift previous solution: u[k] = u[k+1], u[N-1] = u[N-1]
-            u_prev = self.prev_sol_x.reshape(self.N_p, self.n_controls)
+            u_prev = self.prev_sol_x.reshape(self.horizon, self.n_controls)
             u_guess = np.vstack([u_prev[1:], u_prev[-1:]])
             x0 = u_guess.flatten().tolist()
         else:
@@ -377,7 +377,7 @@ class MultiStackNMPCController(BaseController):
             I_est = (P_ref_0 / self.n_stacks) / (2.0 * self.n_cells)
             I_est = max(self.I_min, min(I_est, self.I_max))
             
-            for k in range(self.N_p):
+            for k in range(self.horizon):
                 x0.extend([I_est]*self.n_stacks)
                 x0.extend(self.last_v_lye.tolist())
                 x0.append(self.last_v_c)
@@ -438,14 +438,14 @@ class MultiStackNMPCController(BaseController):
             self.last_v_c = v_c_cmd
             
             # 1. Actions
-            actions = u_opt.reshape(self.N_p, self.n_controls)
+            actions = u_opt.reshape(self.horizon, self.n_controls)
             
             # 2. Predicted States
             # Re-construct P for state_func (logic from solve_nmpc)
             # P_ref_vec alignment
             if np.isscalar(P_ref_vec):
-                P_ref_vec = [P_ref_vec] * self.N_p
-            elif len(P_ref_vec) != self.N_p:
+                P_ref_vec = [P_ref_vec] * self.horizon
+            elif len(P_ref_vec) != self.horizon:
                 pass
             
             p = []
@@ -459,13 +459,13 @@ class MultiStackNMPCController(BaseController):
             # Evaluate state function
             # u_opt is flat, p is list
             pred_states_vec = self.state_func(u_opt, p).full().flatten()
-            pred_states = pred_states_vec.reshape(self.N_p, 7) # 1+4+1+1=7
+            pred_states = pred_states_vec.reshape(self.horizon, 7) # 1+4+1+1=7
             
             return actions, pred_states
         else:
             # Return copies of last action repeated
             last_action = np.concatenate([self.last_I, self.last_v_lye, [self.last_v_c]])
-            actions = np.tile(last_action, (self.N_p, 1))
+            actions = np.tile(last_action, (self.horizon, 1))
             
             # Return current state repeated (best guess if failed)
             # State vector input: T_s_in(1), T_s_vec(4), T_sep(1), T_c_out(1) ...
@@ -477,6 +477,6 @@ class MultiStackNMPCController(BaseController):
                 state_vec[5:6], # T_sep
                 state_vec[6:7]  # T_c_out
             ])
-            pred_states = np.tile(current_thermal, (self.N_p, 1))
+            pred_states = np.tile(current_thermal, (self.horizon, 1))
             
             return actions, pred_states

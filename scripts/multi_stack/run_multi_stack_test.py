@@ -96,7 +96,7 @@ def run_warmup_phase(sim, ctrl, history, last_action, dt):
 
         # Control
         # Create P_future for warmup (constant) - needed for logging every step
-        P_future = [warmup_P_ref] * ctrl.horizon if hasattr(ctrl, 'horizon') else [warmup_P_ref] * ctrl.N
+        P_future = [warmup_P_ref] * ctrl.horizon if hasattr(ctrl, 'horizon') else [warmup_P_ref] * ctrl.horizon
 
         if i % 10 == 0: # 10s control loop
             I_cmd, v_lye_cmd, v_c_cmd = ctrl.get_action(
@@ -144,7 +144,7 @@ def run_test(controller_type='nmpc', model_type='tcn'):
     sim = MultiStackSimulator(dt=dt)
     
     if controller_type == 'nmpc':
-        ctrl = MultiStackNMPCController(dt=10.0, N_p=10)
+        ctrl = MultiStackNMPCController(dt=10.0, horizon=10)
         print("Using NMPC Controller")
     elif controller_type == 'diffusion':
         ctrl = MultiStackDiffusionController(dt=10.0, horizon=10, model_type=model_type)
@@ -221,7 +221,7 @@ def run_test(controller_type='nmpc', model_type='tcn'):
         # Control
         # Always compute P_future for logging
         P_future = []
-        horizon = ctrl.N_p if hasattr(ctrl, 'N') else ctrl.horizon
+        horizon = ctrl.horizon if hasattr(ctrl, 'N') else ctrl.horizon
         for k in range(horizon):
             t_future = t + k * ctrl.dt # ctrl.dt = 10.0
             idx_future = int(t_future / dt) # dt = 1.0
@@ -273,8 +273,11 @@ def run_test(controller_type='nmpc', model_type='tcn'):
         # Periodic Plot Update (every 1000s)
         if t > 0 and t % 1000 == 0:
             print(f"Updating progress plot at t={t}s...")
-            # Use d:\Projects\AWE\output\multi_stack
-            output_dir = r"d:\Projects\AWE\output\multi_stack"
+            # Use project root relative path
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
+            output_dir = os.path.join(project_root, 'output', 'multi_stack')
+            
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
             
@@ -283,7 +286,10 @@ def run_test(controller_type='nmpc', model_type='tcn'):
             save_plot(history, output_dir, data_filename)
             
     # Save final data
-    output_dir = r"d:\Projects\AWE\output\multi_stack"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
+    output_dir = os.path.join(project_root, 'output', 'multi_stack')
+    
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         

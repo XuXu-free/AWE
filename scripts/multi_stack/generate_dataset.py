@@ -87,7 +87,11 @@ def save_and_plot(data_list, output_dir, timestamp):
 
 def load_monthly_profiles():
     import glob
-    base_dir = r'd:\Projects\AWE\output\power\wind'
+    # Get project root
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
+    
+    base_dir = os.path.join(project_root, 'output', 'power', 'wind')
     # Modified to only load January 2025 data
     pattern = os.path.join(base_dir, 'wind_power_2025-01_1min.csv')
     files = sorted(glob.glob(pattern))
@@ -110,7 +114,12 @@ def generate_dataset():
     # Configuration
     # dt_ctrl = 1 min = 60 s
     dt_ctrl = 60.0
-    output_dir = r"d:\Projects\AWE\output\multi_stack\dataset"
+    
+    # Get project root
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
+    
+    output_dir = os.path.join(project_root, 'output', 'multi_stack', 'dataset')
     
     # NMPC parameters
     horizon = 5
@@ -143,7 +152,7 @@ def generate_dataset():
     
     # Initialize Controller with Control Interval
     try:
-        controller = MultiStackNMPCController(dt=dt_ctrl, N_p=horizon, dt_sub=sim_dt)
+        controller = MultiStackNMPCController(dt=dt_ctrl, horizon=horizon, dt_sub=sim_dt)
     except Exception as e:
         print(f"Failed to initialize controller: {e}")
         return
