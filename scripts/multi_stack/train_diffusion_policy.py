@@ -4,6 +4,8 @@ import sys
 import torch
 import numpy as np
 import csv
+import pandas as pd
+from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader, random_split
 import torch.optim as optim
 import argparse
@@ -16,7 +18,7 @@ from diffusion.ddpm import DDPMScheduler
 from diffusion.flow_matching import FlowMatchingScheduler
 
 class AWEDataset(Dataset):
-    def __init__(self, csv_file, horizon=10, normalize=True):
+    def __init__(self, csv_file, horizon=5, normalize=True):
         self.data = []
         self.headers = []
         self.horizon = horizon
@@ -63,7 +65,13 @@ class AWEDataset(Dataset):
         if self.normalize:
             self._normalize_data()
         # Save normalization stats
-        stats_path = os.path.join(r'd:\Projects\AWE\output\multi_stack', 'diffusion_stats.npz')
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
+        output_dir = os.path.join(project_root, 'output', 'multi_stack')
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+            
+        stats_path = os.path.join(output_dir, 'diffusion_stats.npz')
         np.savez(stats_path, 
                  cond_min=self.cond_min, cond_max=self.cond_max,
                  action_min=self.action_min, action_max=self.action_max)
@@ -332,7 +340,10 @@ def train():
 
     # Configuration
     # Find latest CSV
-    output_dir = r"d:\Projects\AWE\output\multi_stack\dataset"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
+    output_dir = os.path.join(project_root, 'output', 'multi_stack', 'dataset')
+    
     # Look for nmpc_dataset (generated) or nmpc_data (logs)
     csv_files = [f for f in os.listdir(output_dir) if f.endswith('.csv') and ('nmpc_dataset' in f)]
     if not csv_files:
@@ -345,7 +356,7 @@ def train():
     batch_size = 64
     num_epochs = args.epochs
     lr = 1e-4
-    horizon = 10
+    horizon = 5
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     print(f"Using device: {device}")
@@ -368,8 +379,8 @@ def train():
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     
     # Model
-    action_dim = dataset.action_dim # 9
-    obs_dim = dataset.cond_dim      # 33 approx
+    action_dim = dataset.action_dim
+    obs_dim = dataset.cond_dim      
     
     print(f"Observation Dim: {obs_dim}, Action Dim: {action_dim}")
     
@@ -377,7 +388,7 @@ def train():
         model = DiffusionMLP(action_dim=action_dim, obs_dim=obs_dim).to(device)
         print("Using ConditionalDiffusionMLP model")
     elif args.model_type == 'tcn':
-        model = DiffusionTCN(action_dim=action_dim, obs_dim=obs_dim, horizon=horizon).to(device)
+        model = DiffusionTCN(output_dim=action_dim, cond_dim=obs_dim, output_num=horizon).to(device)
         print("Using TCNDiffusion model")
     elif args.model_type == 'flow_matching':
         # Flow Matching uses the same architecture as TCN Diffusion
@@ -395,89 +406,127 @@ def train():
     
     # Training Loop
     print("Starting training...")
-    model.train()
     
-    # Track best loss
+    # Plotting setup
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import pandas as pd
+    
+    model_dir = os.path.join(project_root, 'output', 'multi_stack', 'model')
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir)
+
+    history_path = os.path.join(model_dir, f'loss_history_{args.model_type}.csv')
     best_test_loss = float('inf')
     loss_history = []
     
     try:
-        for epoch in range(num_epochs):
-            model.train()
-            train_loss = 0
-            for cond, action in train_loader:
-                cond = cond.to(device)
-                action = action.to(device) # x_start
-                
-                if args.model_type == 'flow_matching':
-                    # Flow Matching Loss
-                    loss = scheduler.compute_loss(model, action, cond)
-                else:
-                    # DDPM Loss
-                    # Sample timesteps
-                    t = torch.randint(0, scheduler.num_timesteps, (cond.shape[0],), device=device).long()
-                    # Compute loss
-                    loss = scheduler.p_losses(model, action, t, cond)
-                
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                
-                train_loss += loss.item()
-            
-            # Validation
-            model.eval()
-            test_loss = 0
-            with torch.no_grad():
-                for cond, action in test_loader:
+        with tqdm(range(num_epochs), desc="Training", unit="epoch") as pbar:
+            for epoch in pbar:
+                model.train()
+                train_loss = 0
+                for cond, action in train_loader:
                     cond = cond.to(device)
-                    action = action.to(device)
+                    action = action.to(device) # x_start
                     
                     if args.model_type == 'flow_matching':
+                        # Flow Matching Loss
                         loss = scheduler.compute_loss(model, action, cond)
                     else:
+                        # DDPM Loss
+                        # Sample timesteps
                         t = torch.randint(0, scheduler.num_timesteps, (cond.shape[0],), device=device).long()
+                        # Compute loss
                         loss = scheduler.p_losses(model, action, t, cond)
-                    test_loss += loss.item()
-
-            avg_train_loss = train_loss / len(train_loader)
-            avg_test_loss = test_loss / len(test_loader)
-            
-            # Record history
-            loss_history.append([epoch+1, avg_train_loss, avg_test_loss])
-            
-            # Save best model
-            if avg_test_loss < best_test_loss:
-                best_test_loss = avg_test_loss
-                best_model_filename = f'best_diffusion_policy_model_{args.model_type}.pth'
+                    
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+                    
+                    train_loss += loss.item()
                 
-                model_dir = os.path.join(r'd:\Projects\AWE\output\multi_stack', 'model')
-                if not os.path.exists(model_dir):
-                    os.makedirs(model_dir)
-                torch.save(model.state_dict(), os.path.join(model_dir, best_model_filename))
-            
-            if (epoch + 1) % 10 == 0 or epoch == 0 or (epoch + 1) == num_epochs:
-                print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {avg_train_loss:.6f}, Test Loss: {avg_test_loss:.6f}")
+                # Validation
+                model.eval()
+                test_loss = 0
+                with torch.no_grad():
+                    for cond, action in test_loader:
+                        cond = cond.to(device)
+                        action = action.to(device)
+                        
+                        if args.model_type == 'flow_matching':
+                            loss = scheduler.compute_loss(model, action, cond)
+                        else:
+                            t = torch.randint(0, scheduler.num_timesteps, (cond.shape[0],), device=device).long()
+                            loss = scheduler.p_losses(model, action, t, cond)
+                        test_loss += loss.item()
+
+                avg_train_loss = train_loss / len(train_loader)
+                avg_test_loss = test_loss / len(test_loader)
+                
+                # Record history
+                loss_history.append([epoch+1, avg_train_loss, avg_test_loss])
+                
+                # Update pbar
+                pbar.set_postfix({
+                    "Train": f"{avg_train_loss:.6f}",
+                    "Test": f"{avg_test_loss:.6f}"
+                })
+                
+                # Save best model
+                if avg_test_loss < best_test_loss:
+                    best_test_loss = avg_test_loss
+                    best_model_filename = f'best_diffusion_policy_model_{args.model_type}.pth'
+                    torch.save(model.state_dict(), os.path.join(model_dir, best_model_filename))
+                
+                if (epoch + 1) % 10 == 0:
+                     # Save CSV
+                     df_history = pd.DataFrame(loss_history, columns=['epoch', 'train_loss', 'test_loss'])
+                     df_history.to_csv(history_path, index=False)
+                     
+                     # Save Plot
+                     plt.figure(figsize=(10, 6))
+                     plt.plot(df_history['epoch'], df_history['train_loss'], label='Train Loss')
+                     plt.plot(df_history['epoch'], df_history['test_loss'], label='Test Loss')
+                     plt.xlabel('Epoch')
+                     plt.ylabel('Loss')
+                     plt.title(f'Diffusion Policy Training Loss ({args.model_type})')
+                     plt.legend()
+                     plt.grid(True)
+                     plot_path = os.path.join(model_dir, f'diffusion_policy_loss_{args.model_type}.png')
+                     plt.savefig(plot_path)
+                     plt.close()
                 
     except KeyboardInterrupt:
         print("\nTraining interrupted by user.")
     finally:
         # Save loss history
-        history_path = os.path.join(output_dir, f'loss_history_{args.model_type}.csv')
         with open(history_path, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(['epoch', 'train_loss', 'test_loss'])
             writer.writerows(loss_history)
         print(f"Loss history saved to {history_path}")
         
+        # Plot Loss
+        df_history = pd.DataFrame(loss_history, columns=['epoch', 'train_loss', 'test_loss'])
+        plt.figure(figsize=(10, 6))
+        plt.plot(df_history['epoch'], df_history['train_loss'], label='Train Loss')
+        plt.plot(df_history['epoch'], df_history['test_loss'], label='Test Loss')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.title(f'Diffusion Policy Training Loss ({args.model_type})')
+        plt.legend()
+        plt.grid(True)
+        
+        plot_path = os.path.join(model_dir, f'diffusion_policy_loss_{args.model_type}.png')
+        plt.savefig(plot_path)
+        plt.close()
+        print(f"Loss plot saved to {plot_path}")
+        
         # Save final model
-        model_dir = os.path.join(r'd:\Projects\AWE\output\multi_stack', 'model')
-        if not os.path.exists(model_dir):
-            os.makedirs(model_dir)
-            
         model_filename = f'diffusion_policy_model_{args.model_type}.pth'
         torch.save(model.state_dict(), os.path.join(model_dir, model_filename))
-        print(f"Model saved to output/multi_stack/model/{model_filename}")
+        print(f"Model saved to {os.path.join(model_dir, model_filename)}")
 
 if __name__ == "__main__":
     train()

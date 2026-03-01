@@ -11,7 +11,7 @@ from tqdm import tqdm
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from plant.multi_stack_simulator import MultiStackSimulator
-from controller.multi_stack.multi_stack_nmpc_controller import MultiStackNMPCController
+from controller.multi_stack.nmpc_controller import MultiStackNMPCController
 
 def load_real_profile():
     profile_path = r'd:\Projects\AWE\output\real_power_profile.csv'
@@ -42,43 +42,131 @@ def randomize_state(sim):
     
     return sim
 
-def save_and_plot(data_list, output_dir, timestamp):
+def save_batch(data_list, output_dir, timestamp):
     if not data_list:
         return
         
     df = pd.DataFrame(data_list)
     
-    # Save CSV
+    # Save CSV (Append mode)
     csv_file = os.path.join(output_dir, f"nmpc_dataset_{timestamp}.csv")
-    df.to_csv(csv_file, index=False)
-    print(f"Dataset saved to: {csv_file}")
     
-    # Plot distributions
+    # Check if file exists to determine header
+    header = not os.path.exists(csv_file)
+    
+    df.to_csv(csv_file, mode='a', header=header, index=False)
+    print(f"Appended {len(data_list)} rows to: {csv_file}")
+
+def plot_all(output_dir, timestamp):
+    csv_file = os.path.join(output_dir, f"nmpc_dataset_{timestamp}.csv")
+    if not os.path.exists(csv_file):
+        return
+
     print("Generating plots...")
-    plt.figure(figsize=(20, 15))
+    try:
+        # Read full file for plotting
+        df = pd.read_csv(csv_file)
+    except Exception as e:
+        print(f"Error reading CSV for plotting: {e}")
+        return
+
+    # Create 3x3 subplot
+    fig, axes = plt.subplots(3, 3, figsize=(18, 15))
     
-    # Define variables to plot
-    plot_vars = [
-        ('P_real', 'Power (W)'),
-        ('T_sep', 'Separator Temp (K)'),
-        ('n_gas', 'Gas Amount (mol)'),
-        ('HTO', 'HTO (%)'),
-        ('H2_rate', 'H2 Production Rate (mol/s)'),
-        ('v_c', 'Cooling Valve')
-    ]
+    # Ensure time is available
+    if 'time' in df.columns:
+        t_arr = df['time'].values
+    else:
+        t_arr = df.index.values
+
+    # 1. Power
+    ax = axes[0,0]
+    if 'P_ref' in df.columns and 'P_real' in df.columns:
+        ax.plot(t_arr, df['P_ref']/1e6, 'k--', label='Ref')
+        ax.plot(t_arr, df['P_real']/1e6, 'b-', label='Real')
+        ax.set_title('Power Tracking (Total)')
+        ax.set_ylabel('MW')
+        ax.legend()
+    ax.grid(True)
     
-    for i, (col, label) in enumerate(plot_vars):
-        plt.subplot(3, 3, i+1)
+    # 2. Temperatures
+    ax = axes[0,1]
+    if 'T_sep' in df.columns:
+        ax.plot(t_arr, df['T_sep'], 'g--', label='Separator')
+    if 'T_c_out' in df.columns:
+        ax.plot(t_arr, df['T_c_out'], 'c:', label='CW Out')
+    for i in range(4):
+        col = f'T_s_{i+1}'
         if col in df.columns:
-            # Time series plot instead of histogram for continuous run
-            plt.plot(df['time']/3600, df[col], color='blue', alpha=0.7)
-            plt.title(f'{label} over Time')
-            plt.xlabel('Time (h)')
-            plt.ylabel(label)
-            plt.grid(True, alpha=0.3)
-        else:
-            plt.text(0.5, 0.5, f'{col} not found', ha='center')
-            
+            ax.plot(t_arr, df[col], label=f'Stack {i+1}')
+    if 'T_ref' in df.columns:
+        ax.plot(t_arr, df['T_ref'], 'k--', linewidth=1.5, label='Ref Temp')
+    ax.set_title('All Temperatures')
+    ax.set_ylabel('K')
+    ax.legend()
+    ax.grid(True)
+    
+    # 3. HTO
+    ax = axes[0,2]
+    if 'HTO' in df.columns:
+        ax.plot(t_arr, df['HTO'], 'm-', label='HTO')
+    ax.set_title('HTO (H2 in O2)')
+    ax.set_ylabel('%')
+    ax.grid(True)
+    
+    # 4. Currents
+    ax = axes[1,0]
+    for i in range(4):
+        col = f'I_{i+1}'
+        if col in df.columns:
+            ax.plot(t_arr, df[col], label=f'Stack {i+1}')
+    ax.set_title('Stack Currents')
+    ax.set_ylabel('Amps')
+    ax.legend()
+    ax.grid(True)
+    
+    # 5. Voltages
+    ax = axes[1,1]
+    for i in range(4):
+        col = f'U_cell_{i+1}'
+        if col in df.columns:
+            ax.plot(t_arr, df[col], label=f'Stack {i+1}')
+    ax.set_title('Stack Voltages (Per Cell)')
+    ax.set_ylabel('Volts')
+    ax.legend()
+    ax.grid(True)
+    
+    # 6. Lye Flow
+    ax = axes[1,2]
+    for i in range(4):
+        col = f'v_lye_{i+1}'
+        if col in df.columns:
+            ax.plot(t_arr, df[col], label=f'Stack {i+1}')
+    ax.set_title('Stack Lye Flow')
+    ax.set_ylabel('m3/s')
+    ax.legend()
+    ax.grid(True)
+    
+    # 7. Coolant Flow
+    ax = axes[2,0]
+    if 'v_c' in df.columns:
+        ax.plot(t_arr, df['v_c'], 'cyan', label='CW')
+    ax.set_title('Coolant Flow')
+    ax.set_ylabel('m3/s')
+    ax.grid(True)
+    
+    # 8. H2 Rate
+    ax = axes[2,1]
+    if 'H2_rate' in df.columns:
+        ax.plot(t_arr, df['H2_rate'], 'g-', label='H2 Rate')
+    ax.set_title('Total H2 Production Rate')
+    ax.set_ylabel('mol/s')
+    ax.grid(True)
+    
+    # 9. Empty
+    ax = axes[2,2]
+    ax.axis('off')
+    
     plt.tight_layout()
     plot_file = os.path.join(output_dir, f"diffusion_data_{timestamp}.png")
     plt.savefig(plot_file)
@@ -149,6 +237,7 @@ def generate_dataset():
     # Initialize Simulator
     # Simulator runs at fine time step (e.g. 0.2s)
     sim = MultiStackSimulator(dt=sim_dt)
+    sim.reset() # Initialize state to default values (zeros/initial conditions) to avoid NoneType error
     
     # Initialize Controller with Control Interval
     try:
@@ -159,24 +248,78 @@ def generate_dataset():
 
     # Storage
     data_list = []
+    start_step = 0
     
-    # Randomize Initial Condition ONCE
-    randomize_state(sim)
+    # Check for existing data to resume
+    # Look for the latest csv in output_dir
+    csv_files = [f for f in os.listdir(output_dir) if f.endswith('.csv') and 'nmpc_dataset' in f]
+    if csv_files:
+        latest_csv_name = max(csv_files, key=lambda x: os.path.getctime(os.path.join(output_dir, x)))
+        latest_csv_path = os.path.join(output_dir, latest_csv_name)
+        
+        print(f"Found existing dataset: {latest_csv_name}")
+        try:
+            df_existing = pd.read_csv(latest_csv_path)
+            if not df_existing.empty and 'step' in df_existing.columns:
+                last_step = df_existing['step'].max()
+                if last_step < total_steps - 1:
+                    print(f"Resuming from step {last_step + 1}...")
+                    start_step = int(last_step + 1)
+                    timestamp = latest_csv_name.replace('nmpc_dataset_', '').replace('.csv', '')
+                    
+                    # Load existing data into list (optional, but good for consistent saving)
+                    # For large datasets, we might just append to file, but here we keep in memory for simplicity/plotting
+                    # Only load if memory permits or if needed for continuity (e.g. plotting)
+                    # To be safe and simple: We will append new rows to data_list and write in 'a' mode or rewrite.
+                    # But the script rewrites the whole file currently.
+                    # Let's load it back.
+                    # data_list = df_existing.to_dict('records')
+                    
+                    # Restore Simulator State from last row
+                    last_row = df_existing.iloc[-1]
+                    
+                    # Restore Sim State
+                    # State vector: [T_s_in, T_s_vec(4), T_sep, T_c_out, n_H2_an_vec(4), n_liq, n_gas]
+                    # We need to make sure sim.state is initialized properly (it should be after sim = MultiStackSimulator())
+                    
+                    # Update individual elements to avoid shape mismatch or reference issues
+                    sim.state[0] = float(last_row['T_s_in'])
+                    sim.state[1:5] = np.array([last_row['T_s_1'], last_row['T_s_2'], last_row['T_s_3'], last_row['T_s_4']], dtype=float)
+                    sim.state[5] = float(last_row['T_sep'])
+                    sim.state[6] = float(last_row['T_c_out'])
+                    sim.state[7:11] = np.array([last_row['n_H2_an_1'], last_row['n_H2_an_2'], last_row['n_H2_an_3'], last_row['n_H2_an_4']], dtype=float)
+                    sim.state[11] = float(last_row['n_liq'])
+                    sim.state[12] = float(last_row['n_gas'])
+                    
+                    # Restore Controller Last Action (for smoothness cost)
+                    controller.last_I = np.array([last_row['I_1'], last_row['I_2'], last_row['I_3'], last_row['I_4']])
+                    controller.last_v_lye = np.array([last_row['v_lye_1'], last_row['v_lye_2'], last_row['v_lye_3'], last_row['v_lye_4']])
+                    controller.last_v_c = last_row['v_c']
+                    
+                    # Restore Action History for logging
+                    I_prev = controller.last_I
+                    v_lye_prev = controller.last_v_lye
+                    v_c_prev = controller.last_v_c
+                    
+                else:
+                    print("Existing dataset appears complete or near end. Starting fresh or check horizon.")
+                    # If complete, maybe we want to extend? But total_steps is fixed by profile.
+                    # Let's assume start fresh if complete.
+                    pass
+        except Exception as e:
+            print(f"Failed to resume from {latest_csv_path}: {e}. Starting fresh.")
     
-    # Reset Controller State
-    controller.prev_sol_x = None
-    controller.last_I = np.zeros(4)
-    controller.last_v_lye = np.ones(4) * 0.03
-    controller.last_v_c = 0.0
+    if start_step == 0:
+        # Randomize Initial Condition ONCE if starting fresh
+        randomize_state(sim)
     
-    # Reset Action History for logging
-    I_prev = np.zeros(4)
-    v_lye_prev = np.zeros(4)
-    v_c_prev = 0.0
+    # Reset Controller State (only if not resumed, but controller init resets it anyway, so we just restored it above if needed)
+    # If starting fresh, prev_sol_x is None. If resumed, we don't have prev_sol_x, so it will warm start from last_I (Cold-ish start)
+    # We could theoretically save/load prev_sol_x but it's not critical.
     
     try:
         # Main Loop with Progress Bar
-        for t in tqdm(range(total_steps), desc="Generating Dataset"):
+        for t in tqdm(range(start_step, total_steps), desc="Generating Dataset"):
             # Current State (At beginning of interval)
             current_state = sim.state.copy()
             
@@ -270,13 +413,19 @@ def generate_dataset():
                     row[f'plan_step_{k}_v_lye_{i+1}'] = u_k[4+i]
                 row[f'plan_step_{k}_v_c'] = u_k[8]
                 
-                # States [T_s_in, T_s_1..4, T_sep, T_c_out]
-                # s_k indices: 0: T_s_in, 1-4: T_s, 5: T_sep, 6: T_c_out
+                # States [T_s_in, T_s_1..4, T_sep, T_c_out, n_H2_an_1..4, n_liq, n_gas]
+                # s_k indices: 0: T_s_in, 1-4: T_s, 5: T_sep, 6: T_c_out, 7-10: n_H2_an, 11: n_liq, 12: n_gas
                 row[f'plan_step_{k}_state_T_s_in'] = s_k[0]
                 for i in range(4):
                     row[f'plan_step_{k}_state_T_s_{i+1}'] = s_k[1+i]
                 row[f'plan_step_{k}_state_T_sep'] = s_k[5]
                 row[f'plan_step_{k}_state_T_c_out'] = s_k[6]
+                
+                # Non-thermal states
+                for i in range(4):
+                    row[f'plan_step_{k}_state_n_H2_an_{i+1}'] = s_k[7+i]
+                row[f'plan_step_{k}_state_n_liq'] = s_k[11]
+                row[f'plan_step_{k}_state_n_gas'] = s_k[12]
                 
             data_list.append(row)
             
@@ -287,13 +436,16 @@ def generate_dataset():
             
             # Periodic save
             if (t + 1) % 1000 == 0:
-                save_and_plot(data_list, output_dir, timestamp)
+                save_batch(data_list, output_dir, timestamp)
+                data_list = [] # Clear memory
+                plot_all(output_dir, timestamp)
                 
     except KeyboardInterrupt:
         print("\nDataset generation interrupted by user.")
     finally:
         # Final save
-        save_and_plot(data_list, output_dir, timestamp)
+        save_batch(data_list, output_dir, timestamp)
+        plot_all(output_dir, timestamp)
 
 if __name__ == "__main__":
     generate_dataset()

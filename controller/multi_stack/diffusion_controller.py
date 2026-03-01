@@ -71,7 +71,7 @@ class MultiStackDiffusionController(BaseController):
         elif model_type == 'flow_matching':
             self.model = FlowMatchingTCN(action_dim=self.action_dim, obs_dim=self.obs_dim, horizon=horizon).to(self.device)
         else:
-            self.model = DiffusionTCN(action_dim=self.action_dim, obs_dim=self.obs_dim, horizon=horizon).to(self.device)
+            self.model = DiffusionTCN(output_dim=self.action_dim, cond_dim=self.obs_dim, output_num=horizon).to(self.device)
             
         if not os.path.exists(model_path):
              if os.path.exists(os.path.join('..', model_path)):
@@ -95,7 +95,7 @@ class MultiStackDiffusionController(BaseController):
         
         # Constraints (from NMPC)
         self.I_min = 0.0
-        self.I_max = 7800.0 * 1.2 # 9360.0
+        self.I_max = 7800.0
         self.v_lye_min = 0.0
         self.v_lye_max = 0.1
         self.v_c_min = 0.0
@@ -168,7 +168,7 @@ class MultiStackDiffusionController(BaseController):
         cond_norm = self._prepare_condition(state, P_ref, T_ref)
         
         # 3. Sample 16 candidates
-        num_candidates = 64
+        num_candidates = 128
         # Expand condition for batch processing
         cond_norm_batch = cond_norm.repeat(num_candidates, 1)
         

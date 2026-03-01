@@ -152,18 +152,18 @@ class TemporalBlock(nn.Module):
 class DiffusionTCN(nn.Module):
     def __init__(
         self, 
-        action_dim, 
-        obs_dim, 
-        horizon=16, 
+        output_dim, 
+        cond_dim, 
+        output_num=16, 
         hidden_dim=256, 
         levels=3, 
         kernel_size=3, 
         dropout=0.0,
         ):
         super(DiffusionTCN, self).__init__()
-        self.action_dim = action_dim
-        self.obs_dim = obs_dim
-        self.horizon = horizon
+        self.action_dim = output_dim
+        self.obs_dim = cond_dim
+        self.horizon = output_num
         self.hidden_dim = hidden_dim
         
         # Timestep embedding
@@ -175,11 +175,11 @@ class DiffusionTCN(nn.Module):
         )
         
         # Condition projection
-        self.cond_proj = nn.Linear(obs_dim, hidden_dim)
+        self.cond_proj = nn.Linear(cond_dim, hidden_dim)
 
         # Input projection (Conv1d for sequence)
         # Input shape: (Batch, Action_Dim, Horizon)
-        self.input_proj = nn.Conv1d(action_dim, hidden_dim, 1)
+        self.input_proj = nn.Conv1d(output_dim, hidden_dim, 1)
 
         layers = []
         num_channels = [hidden_dim] * (levels + 1)
@@ -193,7 +193,7 @@ class DiffusionTCN(nn.Module):
         self.tcn = nn.ModuleList(layers)
         
         # Final output projection
-        self.output_proj = nn.Conv1d(hidden_dim, action_dim, 1)
+        self.output_proj = nn.Conv1d(hidden_dim, output_dim, 1)
 
     def forward(self, x, t, cond):
         """

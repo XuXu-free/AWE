@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 import argparse
+from tqdm import tqdm
 
 import matplotlib.pyplot as plt
 
@@ -12,9 +13,9 @@ import matplotlib.pyplot as plt
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from plant.multi_stack_simulator import MultiStackSimulator
-from controller.multi_stack.multi_stack_nmpc_controller import MultiStackNMPCController
-from controller.multi_stack.multi_stack_diffusion_controller import MultiStackDiffusionController
-
+from controller.multi_stack.nmpc_controller import MultiStackNMPCController
+from controller.multi_stack.diffusion_controller import MultiStackDiffusionController
+from controller.multi_stack.diffusion_dynamic_controller import MultiStackDiffusionDynamicController
 
 def add_measurement_noise(state):
     """
@@ -22,133 +23,140 @@ def add_measurement_noise(state):
     """
     return np.copy(state)
 
-def generate_power_profile_values(t_eval):
-    for t in t_eval:
-        if t < 3600:
-            # Normal / Fluctuating Phase (0 - 1h)
-            # Base fluctuating signal: Sum of sines to mimic wind/solar variability
-            # Range approx 3MW to 22MW
-            # Low freq + Med freq components
-            val = 12.0 + 6.0 * np.sin(2 * np.pi * t / 11000) + \
-                  4.0 * np.sin(2 * np.pi * t / 3700) + \
-                  2.0 * np.sin(2 * np.pi * t / 1300)
-            
-            # Add some noise/roughness
-            val += 1.0 * np.sin(2 * np.pi * t / 300)
-            
-            # Clip to match visual range [3, 22]
-            val = np.clip(val, 3.0, 22.0)
-            yield val * 1e6
-            
-        else:
-            # Overload Phase (1h - 2h)
-            # Reference goes high (~26-33 MW), System limited to ~25MW
-            # Plateau with fluctuations
-            # Adjust time base for continuity in sine waves or just shift
-            t_shift = t - 3600
-            val = 28.0 + 3.0 * np.sin(2 * np.pi * t_shift / 2500) + \
-                  1.5 * np.sin(2 * np.pi * t / 800)
-            
-            # Clip [25, 33]
-            val = np.clip(val, 25.0, 33.0)
-            yield val * 1e6
+def load_december_profile():
+    # Get project root
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
+    
+    profile_path = os.path.join(project_root, 'output', 'power', 'wind', 'wind_power_2025-12_1min.csv')
+    
+    if not os.path.exists(profile_path):
+        raise FileNotFoundError(f"December profile not found at {profile_path}")
+        
+    print(f"Loading December profile from {profile_path}...")
+    df = pd.read_csv(profile_path)
+    return df['P_ref'].values
 
-def run_warmup_phase(sim, ctrl, history, last_action, dt):
+def run_warmup_phase(sim, ctrl, history, last_action, dt, T_ref=353.15):
     """
     Run a warmup phase at constant power to stabilize temperatures.
     """
-    warmup_duration = 1000 # seconds
+    warmup_duration = 1200 # seconds (20 mins)
     warmup_steps = int(warmup_duration / dt)
     warmup_P_ref = 8.0e6 # 8MW constant
     
     print(f"Starting Warm-up Phase ({warmup_duration}s at {warmup_P_ref/1e6}MW)...")
     
-    for i in range(warmup_steps):
-        t_warmup = -warmup_duration + i * dt
-        
-        # Measure State (with noise)
-        measured_state = add_measurement_noise(sim.state)
-        
-        # Extract State (from measurements)
-        T_s_in = measured_state[0]
-        T_s_vec = measured_state[1:5]
-        T_sep = measured_state[5]
-        T_c_out = measured_state[6]
-        n_H2_an_vec = measured_state[7:11]
-        n_liq = measured_state[11]
-        n_gas = measured_state[12]
-        
-        # Calculate Real Power (using TRUE state for physics)
-        Q, U_cell, eta = sim._calculate_electrochemical_properties(last_action[0], sim.state[1:5])
-        P_real = np.sum(U_cell * last_action[0] * sim.N_cell)
-        
-        # Calculate Extra Metrics (using measurements)
-        n_H2_sep_gas = measured_state[12]
-        # T_sep is already Kelvin
-        n_gas_total = (sim.p_sys * sim.V_sep_gas) / (sim.R * T_sep)
-        hto_pct = (n_H2_sep_gas / n_gas_total) * 100 if n_gas_total > 1e-9 else 0.0
-        
-        F_const = 96485.0
-        h2_rate = np.sum(sim.N_cell * last_action[0] * eta / (2 * F_const))
-        
-        # Store previous action before update
-        prev_action = [np.copy(last_action[0]), np.copy(last_action[1]), last_action[2]]
-
-        # Control
-        # Create P_future for warmup (constant) - needed for logging every step
-        P_future = [warmup_P_ref] * ctrl.horizon if hasattr(ctrl, 'horizon') else [warmup_P_ref] * ctrl.horizon
-
-        if i % 10 == 0: # 10s control loop
-            I_cmd, v_lye_cmd, v_c_cmd = ctrl.get_action(
-                measured_state, P_future, T_ref=358.15
-            )
-            action_sim = np.concatenate([I_cmd, v_lye_cmd, [v_c_cmd]])
-            last_action = [I_cmd, v_lye_cmd, v_c_cmd]
-        else:
-            action_sim = np.concatenate([last_action[0], last_action[1], [last_action[2]]])
+    # Pre-calculate future profile for warmup (constant)
+    P_future = [warmup_P_ref] * ctrl.horizon
+    
+    # Control interval steps
+    ctrl_steps = int(ctrl.dt / dt)
+    
+    with tqdm(total=warmup_steps, desc="Warmup", unit="step") as pbar:
+        for i in range(warmup_steps):
+            t_warmup = -warmup_duration + i * dt
             
-        sim.step(action_sim)
-        
-        # Log Warmup
-        history['t'].append(t_warmup)
-        history['P_ref'].append(warmup_P_ref)
-        history['P_real'].append(P_real)
-        history['T_s_in'].append(T_s_in)
-        history['T_s_all'].append(T_s_vec)
-        history['T_sep'].append(T_sep)
-        history['T_c_out'].append(T_c_out)
-        history['n_H2_an_vec'].append(n_H2_an_vec)
-        history['n_liq'].append(n_liq)
-        history['n_gas'].append(n_gas)
-        history['T_ref'].append(358.15) # Log in Kelvin
-        history['P_ref_future'].append(P_future)
-        history['I_prev'].append(prev_action[0])
-        history['v_lye_prev'].append(prev_action[1])
-        history['v_c_prev'].append(prev_action[2])
-        history['I_all'].append(last_action[0])
-        history['v_lye_all'].append(last_action[1])
-        history['v_c'].append(last_action[2])
-        history['U_cell_all'].append(U_cell)
-        history['HTO'].append(hto_pct)
-        history['H2_rate'].append(h2_rate)
-        
-        if i % 100 == 0:
-            print(f"Warmup: {(i*dt)/warmup_duration*100:.0f}% | T_s_mean={np.mean(T_s_vec):.1f}K")
+            # Measure State (with noise)
+            measured_state = add_measurement_noise(sim.state)
+            
+            # Extract State (from measurements)
+            T_s_in = measured_state[0]
+            T_s_vec = measured_state[1:5]
+            T_sep = measured_state[5]
+            T_c_out = measured_state[6]
+            n_H2_an_vec = measured_state[7:11]
+            n_liq = measured_state[11]
+            n_gas = measured_state[12]
+            
+            # Calculate Real Power (using TRUE state for physics)
+            Q, U_cell, eta = sim._calculate_electrochemical_properties(last_action[0], sim.state[1:5])
+            P_real = np.sum(U_cell * last_action[0] * sim.N_cell)
+            
+            # Calculate Extra Metrics (using measurements)
+            n_H2_sep_gas = measured_state[12]
+            # T_sep is already Kelvin
+            n_gas_total = (sim.p_sys * sim.V_sep_gas) / (sim.R * T_sep)
+            hto_pct = (n_H2_sep_gas / n_gas_total) * 100 if n_gas_total > 1e-9 else 0.0
+            
+            F_const = 96485.0
+            h2_rate = np.sum(sim.N_cell * last_action[0] * eta / (2 * F_const))
+            
+            # Store previous action before update
+            prev_action = [np.copy(last_action[0]), np.copy(last_action[1]), last_action[2]]
+
+            # Control Update
+            if i % ctrl_steps == 0:
+                I_cmd, v_lye_cmd, v_c_cmd = ctrl.get_action(
+                    measured_state, P_future, T_ref=T_ref
+                )
+                action_sim = np.concatenate([I_cmd, v_lye_cmd, [v_c_cmd]])
+                last_action = [I_cmd, v_lye_cmd, v_c_cmd]
+            else:
+                action_sim = np.concatenate([last_action[0], last_action[1], [last_action[2]]])
+                
+            sim.step(action_sim)
+            
+            # Log Warmup (downsample logging to avoid huge files? or keep all for now)
+            # Log every 1s (approx 5 steps) to save space if dt=0.2
+            if i % 5 == 0:
+                history['t'].append(t_warmup)
+                history['P_ref'].append(warmup_P_ref)
+                history['P_real'].append(P_real)
+                history['T_s_in'].append(T_s_in)
+                history['T_s_all'].append(T_s_vec)
+                history['T_sep'].append(T_sep)
+                history['T_c_out'].append(T_c_out)
+                history['n_H2_an_vec'].append(n_H2_an_vec)
+                history['n_liq'].append(n_liq)
+                history['n_gas'].append(n_gas)
+                history['T_ref'].append(T_ref)
+                history['P_ref_future'].append(P_future)
+                history['I_prev'].append(prev_action[0])
+                history['v_lye_prev'].append(prev_action[1])
+                history['v_c_prev'].append(prev_action[2])
+                history['I_all'].append(last_action[0])
+                history['v_lye_all'].append(last_action[1])
+                history['v_c'].append(last_action[2])
+                history['U_cell_all'].append(U_cell)
+                history['HTO'].append(hto_pct)
+                history['H2_rate'].append(h2_rate)
+            
+            if i % 100 == 0:
+                pbar.set_postfix({
+                    "T_s_mean": f"{np.mean(T_s_vec):.1f}K"
+                })
+            pbar.update(1)
 
     print("Warm-up Complete. Starting Main Test...")
     return last_action
 
 def run_test(controller_type='nmpc', model_type='tcn'):
-    # Setup
-    dt = 1.0
-    sim = MultiStackSimulator(dt=dt)
+    # Setup - aligned with generate_dataset.py
+    sim_dt = 0.2
+    dt_ctrl = 60.0
+    horizon = 5
+    T_ref = 353.15 # 80°C
+    
+    sim = MultiStackSimulator(dt=sim_dt)
+    
+    # Paths
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
+    stats_path = os.path.join(project_root, 'output', 'multi_stack', 'diffusion_stats.npz')
+    model_path = os.path.join(project_root, 'output', 'multi_stack', 'model', f'best_diffusion_policy_model_{model_type}.pth')
     
     if controller_type == 'nmpc':
-        ctrl = MultiStackNMPCController(dt=10.0, horizon=10)
+        ctrl = MultiStackNMPCController(dt=dt_ctrl, horizon=horizon, dt_sub=sim_dt)
         print("Using NMPC Controller")
     elif controller_type == 'diffusion':
-        ctrl = MultiStackDiffusionController(dt=10.0, horizon=10, model_type=model_type)
+        ctrl = MultiStackDiffusionController(dt=dt_ctrl, horizon=horizon, model_type=model_type, 
+                                             model_path=model_path, stats_path=stats_path)
         print(f"Using Diffusion Controller ({model_type})")
+    elif controller_type == 'diffusion_dynamic':
+        ctrl = MultiStackDiffusionDynamicController(dt=dt_ctrl, horizon=horizon, model_type=model_type, 
+                                             model_path=model_path, stats_path=stats_path)
+        print(f"Using Diffusion Dynamic Controller ({model_type})")
     else:
         raise ValueError(f"Unknown controller type: {controller_type}")
     
@@ -156,9 +164,18 @@ def run_test(controller_type='nmpc', model_type='tcn'):
     sim.reset()
     
     # Profile
-    duration = 7200 # 2 hours
-    t_eval = np.arange(0, duration, dt)
-    P_ref_profile = np.array(list(generate_power_profile_values(t_eval)))
+    full_profile = load_december_profile()
+    
+    # Use 24 hours for the test to be representative but manageable
+    # (The full December data is 31 days which is too long for a single script run)
+    duration = 86400 # 24 hours
+    if len(full_profile) < duration/60:
+         duration = len(full_profile) * 60
+    
+    # Time array for simulation steps (0.2s)
+    t_eval = np.arange(0, duration, sim_dt)
+    
+    print(f"Running test for {duration}s ({duration/3600:.1f}h) with sim_dt={sim_dt}s, dt_ctrl={dt_ctrl}s")
             
     history = {
         't': [], 'P_ref': [], 'P_real': [],
@@ -177,118 +194,133 @@ def run_test(controller_type='nmpc', model_type='tcn'):
     ]
     
     # --- Warm-up Phase ---
-    last_action = run_warmup_phase(sim, ctrl, history, last_action, dt)
+    last_action = run_warmup_phase(sim, ctrl, history, last_action, sim_dt, T_ref=T_ref)
 
     print(f"Starting Multi-Stack {controller_type.upper()} Test...")
     
     # Generate timestamped filename for data logging
-    data_filename = f"multi_stack_{controller_type}_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    data_filename = f"{controller_type}_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     
     # Loop
-    # Initialize P_future_log
-    P_future_log = []
+    ctrl_steps = int(dt_ctrl / sim_dt)
+    
+    # Pre-calculate profile indices for efficiency
+    profile_indices = (t_eval / 60).astype(int)
+    profile_indices = np.clip(profile_indices, 0, len(full_profile)-1)
+    
+    with tqdm(total=len(t_eval), desc="Testing", unit="step") as pbar:
+        for i, t in enumerate(t_eval):
+            # Measure State (with noise)
+            measured_state = add_measurement_noise(sim.state)
 
-    for i, t in enumerate(t_eval):
-        # Measure State (with noise)
-        measured_state = add_measurement_noise(sim.state)
+            # Extract State (from measurements)
+            T_s_in = measured_state[0]
+            T_s_vec = measured_state[1:5]
+            T_sep = measured_state[5]
+            T_c_out = measured_state[6]
+            n_H2_an_vec = measured_state[7:11]
+            n_liq = measured_state[11]
+            n_gas = measured_state[12]
+            
+            # Calculate Real Power (using TRUE state for physics)
+            Q, U_cell, eta = sim._calculate_electrochemical_properties(last_action[0], sim.state[1:5])
+            P_real = np.sum(U_cell * last_action[0] * sim.N_cell)
+            
+            # Calculate Extra Metrics (using measurements)
+            n_H2_sep_gas = measured_state[12]
+            # T_sep is already Kelvin
+            n_gas_total = (sim.p_sys * sim.V_sep_gas) / (sim.R * T_sep)
+            hto_pct = (n_H2_sep_gas / n_gas_total) * 100 if n_gas_total > 1e-9 else 0.0
+            
+            # H2 Production Rate (mol/s)
+            F_const = 96485.0
+            h2_rate = np.sum(sim.N_cell * last_action[0] * eta / (2 * F_const))
+            
+            # Store previous action
+            prev_action = [np.copy(last_action[0]), np.copy(last_action[1]), last_action[2]]
 
-        # Extract State (from measurements)
-        T_s_in = measured_state[0]
-        T_s_vec = measured_state[1:5]
-        T_sep = measured_state[5]
-        T_c_out = measured_state[6]
-        n_H2_an_vec = measured_state[7:11]
-        n_liq = measured_state[11]
-        n_gas = measured_state[12]
-        
-        # Calculate Real Power (using TRUE state for physics)
-        Q, U_cell, eta = sim._calculate_electrochemical_properties(last_action[0], sim.state[1:5])
-        P_real = np.sum(U_cell * last_action[0] * sim.N_cell)
-        
-        # Calculate Extra Metrics (using measurements)
-        n_H2_sep_gas = measured_state[12]
-        # T_sep is already Kelvin
-        n_gas_total = (sim.p_sys * sim.V_sep_gas) / (sim.R * T_sep)
-        hto_pct = (n_H2_sep_gas / n_gas_total) * 100 if n_gas_total > 1e-9 else 0.0
-        
-        # H2 Production Rate (mol/s)
-        F_const = 96485.0
-        h2_rate = np.sum(sim.N_cell * last_action[0] * eta / (2 * F_const))
-        
-        # Store previous action
-        prev_action = [np.copy(last_action[0]), np.copy(last_action[1]), last_action[2]]
-
-        # Control
-        # Always compute P_future for logging
-        P_future = []
-        horizon = ctrl.horizon if hasattr(ctrl, 'N') else ctrl.horizon
-        for k in range(horizon):
-            t_future = t + k * ctrl.dt # ctrl.dt = 10.0
-            idx_future = int(t_future / dt) # dt = 1.0
-            if idx_future < len(P_ref_profile):
-                P_future.append(P_ref_profile[idx_future])
+            # Control Update
+            if i % ctrl_steps == 0:
+                # Get P_future from profile
+                idx_min = int(t / 60)
+                end_idx = idx_min + horizon
+                if end_idx <= len(full_profile):
+                    P_future = full_profile[idx_min:end_idx]
+                else:
+                    P_future = full_profile[idx_min:]
+                    # Pad with last value if needed
+                    if len(P_future) < horizon:
+                        padding = np.full(horizon - len(P_future), full_profile[-1])
+                        P_future = np.concatenate([P_future, padding])
+                
+                # Ensure P_future is list or array
+                P_future = list(P_future)
+                
+                I_cmd, v_lye_cmd, v_c_cmd = ctrl.get_action(
+                    measured_state, P_future, T_ref=T_ref
+                )
+                
+                # Pack action for simulator: [I1..4, v1..4, vc]
+                action_sim = np.concatenate([I_cmd, v_lye_cmd, [v_c_cmd]])
+                last_action = [I_cmd, v_lye_cmd, v_c_cmd]
             else:
-                P_future.append(P_ref_profile[-1])
-
-        if i % 10 == 0: # 10s control loop
+                action_sim = np.concatenate([last_action[0], last_action[1], [last_action[2]]])
+                
+            sim.step(action_sim)
             
-            I_cmd, v_lye_cmd, v_c_cmd = ctrl.get_action(
-                measured_state, P_future, T_ref=358.15 # Controller expects Kelvin
-            )
+            # Log (downsampled) - Every 10s (50 steps)
+            if i % 50 == 0:
+                history['t'].append(t)
+                history['P_ref'].append(full_profile[profile_indices[i]])
+                history['P_real'].append(P_real)
+                history['T_s_in'].append(T_s_in)
+                history['T_s_all'].append(T_s_vec)
+                history['T_sep'].append(T_sep)
+                history['T_c_out'].append(T_c_out)
+                history['n_H2_an_vec'].append(n_H2_an_vec)
+                history['n_liq'].append(n_liq)
+                history['n_gas'].append(n_gas)
+                history['T_ref'].append(T_ref)
+                history['P_ref_future'].append(P_future) # Note: P_future from last control step
+                history['I_prev'].append(prev_action[0])
+                history['v_lye_prev'].append(prev_action[1])
+                history['v_c_prev'].append(prev_action[2])
+                history['I_all'].append(last_action[0])
+                history['v_lye_all'].append(last_action[1])
+                history['v_c'].append(last_action[2])
+                history['U_cell_all'].append(U_cell)
+                history['HTO'].append(hto_pct)
+                history['H2_rate'].append(h2_rate)
             
-            # Pack action for simulator: [I1..4, v1..4, vc]
-            action_sim = np.concatenate([I_cmd, v_lye_cmd, [v_c_cmd]])
-            last_action = [I_cmd, v_lye_cmd, v_c_cmd]
-        else:
-            action_sim = np.concatenate([last_action[0], last_action[1], [last_action[2]]])
+            # Update progress bar
+            if i % 100 == 0:
+                P_ref_val = full_profile[profile_indices[i]]
+                pbar.set_postfix({
+                    "t": f"{t:.0f}s",
+                    "P_ref": f"{P_ref_val/1e6:.1f}MW",
+                    "P_real": f"{P_real/1e6:.1f}MW",
+                    "T_s": f"{np.mean(T_s_vec)-273.15:.1f}C"
+                })
+            pbar.update(1)
             
-        sim.step(action_sim)
-        
-        # Log
-        history['t'].append(t)
-        history['P_ref'].append(P_ref_profile[i])
-        history['P_real'].append(P_real)
-        history['T_s_in'].append(T_s_in)
-        history['T_s_all'].append(T_s_vec)
-        history['T_sep'].append(T_sep)
-        history['T_c_out'].append(T_c_out)
-        history['n_H2_an_vec'].append(n_H2_an_vec)
-        history['n_liq'].append(n_liq)
-        history['n_gas'].append(n_gas)
-        history['T_ref'].append(358.15) # Log in Kelvin
-        history['P_ref_future'].append(P_future)
-        history['I_prev'].append(prev_action[0])
-        history['v_lye_prev'].append(prev_action[1])
-        history['v_c_prev'].append(prev_action[2])
-        history['I_all'].append(last_action[0])
-        history['v_lye_all'].append(last_action[1])
-        history['v_c'].append(last_action[2])
-        history['U_cell_all'].append(U_cell)
-        history['HTO'].append(hto_pct)
-        history['H2_rate'].append(h2_rate)
-        
-        if i % 100 == 0:
-            print(f"t={t:.0f}s | P_ref={P_ref_profile[i]/1e6:.1f}MW | P_real={P_real/1e6:.1f}MW | I_mean={np.mean(last_action[0]):.0f}A | v_lye={np.mean(last_action[1]):.3f} | v_c={last_action[2]:.3f} | T_s_mean={np.mean(T_s_vec)-273.15:.1f}C | HTO={hto_pct:.2f}% | H2={h2_rate:.1f}mol/s")
-        
-        # Periodic Plot Update (every 1000s)
-        if t > 0 and t % 1000 == 0:
-            print(f"Updating progress plot at t={t}s...")
-            # Use project root relative path
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
-            output_dir = os.path.join(project_root, 'output', 'multi_stack')
-            
-            if not os.path.exists(output_dir):
-                os.makedirs(output_dir)
-            
-            # Save CSV snapshot
-            save_data_csv(history, output_dir, data_filename)
-            save_plot(history, output_dir, data_filename)
+            # Periodic Plot Update (every 3600s)
+            if t > 0 and i % (3600 * 5) == 0: # Every hour
+                # Use project root relative path
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
+                output_dir = os.path.join(project_root, 'output', 'multi_stack', 'test')
+                
+                if not os.path.exists(output_dir):
+                    os.makedirs(output_dir)
+                
+                # Save CSV snapshot
+                save_data_csv(history, output_dir, data_filename)
+                save_plot(history, output_dir, data_filename)
             
     # Save final data
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
-    output_dir = os.path.join(project_root, 'output', 'multi_stack')
+    output_dir = os.path.join(project_root, 'output', 'multi_stack', 'test')
     
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -301,35 +333,20 @@ def run_test(controller_type='nmpc', model_type='tcn'):
     P_ref_arr = np.array(history['P_ref'])
     P_real_arr = np.array(history['P_real'])
     T_s_all = np.array(history['T_s_all'])
-    T_s_mean = np.mean(T_s_all, axis=1)
+    if T_s_all.ndim > 1:
+        T_s_mean = np.mean(T_s_all, axis=1)
+    else:
+        T_s_mean = np.zeros_like(t_arr)
     T_ref_arr = np.array(history['T_ref'])
     
-    mask_normal = t_arr < 3600
-    mask_overload = t_arr >= 3600
+    # Metrics
+    rmse_p = np.sqrt(np.mean((P_real_arr - P_ref_arr)**2)) / 1e6
+    rmse_t = np.sqrt(np.mean((T_s_mean - T_ref_arr)**2))
     
-    def calc_rmse_power(mask):
-        if np.sum(mask) == 0: return 0.0
-        return np.sqrt(np.mean((P_real_arr[mask] - P_ref_arr[mask])**2)) / 1e6
-
-    def calc_rmse_temp(mask):
-        if np.sum(mask) == 0: return 0.0
-        return np.sqrt(np.mean((T_s_mean[mask] - T_ref_arr[mask])**2))
-
-    rmse_p_normal = calc_rmse_power(mask_normal)
-    rmse_p_overload = calc_rmse_power(mask_overload)
-    rmse_p_total = calc_rmse_power(np.ones_like(t_arr, dtype=bool))
-    
-    rmse_t_normal = calc_rmse_temp(mask_normal)
-    rmse_t_overload = calc_rmse_temp(mask_overload)
-    rmse_t_total = calc_rmse_temp(np.ones_like(t_arr, dtype=bool))
-
     print("-" * 50)
     print(f"Performance Metrics (Duration: {duration}s)")
-    print(f"{'Phase':<15} | {'Power RMSE (MW)':<15} | {'Temp RMSE (K)':<15}")
-    print("-" * 50)
-    print(f"{'Normal':<15} | {rmse_p_normal:<15.3f} | {rmse_t_normal:<15.3f}")
-    print(f"{'Overload':<15} | {rmse_p_overload:<15.3f} | {rmse_t_overload:<15.3f}")
-    print(f"{'Overall':<15} | {rmse_p_total:<15.3f} | {rmse_t_total:<15.3f}")
+    print(f"Power RMSE: {rmse_p:.3f} MW")
+    print(f"Temp RMSE:  {rmse_t:.3f} K")
     print("-" * 50)
     
     print("Test Complete. Results saved.")
@@ -459,7 +476,7 @@ def save_data_csv(history, output_dir, filename):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run Multi-Stack Test')
-    parser.add_argument('--controller', type=str, default='diffusion', choices=['nmpc', 'diffusion'], help='Controller type')
+    parser.add_argument('--controller', type=str, default='diffusion', choices=['nmpc', 'diffusion', 'diffusion_dynamic'], help='Controller type')
     parser.add_argument('--model_type', type=str, default='tcn', choices=['mlp', 'tcn', 'flow_matching'], help='Diffusion model type (only for diffusion controller)')
     args = parser.parse_args()
     

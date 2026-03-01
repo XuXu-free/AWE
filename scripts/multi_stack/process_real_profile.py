@@ -37,7 +37,7 @@ def process_profile_monthly():
     # Sort chronologically
     df = df.sort_values('Datetime')
     
-    # Scale to 0 - 40 MW
+    # Scale to 8 - 40 MW
     data = df[col_name].values
     d_min = np.min(data)
     d_max = np.max(data)
@@ -49,7 +49,7 @@ def process_profile_monthly():
     else:
         norm_data = (data - d_min) / (d_max - d_min)
         
-    scaled_data = norm_data * 40.0e6
+    scaled_data = norm_data * 32.0e6 + 8.0e6
     df['P_ref'] = scaled_data
     
     # Group by Month

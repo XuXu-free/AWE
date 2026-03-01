@@ -282,7 +282,7 @@ class MultiStackNMPCController(BaseController):
         solver = ca.nlpsol('solver', 'ipopt', nlp, opts)
         self.solver = solver
         
-        # Check if compiled solver exists and load it
+        # # Check if compiled solver exists and load it
         # if os.path.exists(dll_file):
         #     # print(f"Loading compiled solver from {dll_file}")
         #     self.solver = ca.nlpsol('solver', 'ipopt', dll_file, opts)
@@ -297,13 +297,12 @@ class MultiStackNMPCController(BaseController):
         #     import subprocess
         #     try:
         #         if os.name == 'posix':
-        #             cmd = f"gcc -fPIC -shared -O1 {c_file} -o {dll_file}"
+        #             cmd = f"gcc -fPIC -shared -O0 {c_file} -o {dll_file}"
         #             subprocess.check_call(cmd.split())
         #         else:
         #             # Windows (assuming MSVC or MinGW)
         #             # Try gcc (MinGW) first
-        #             # Use -O1 instead of -O3 to prevent "out of memory" errors
-        #             cmd = f"gcc -shared -O1 {c_file} -o {dll_file}"
+        #             cmd = f"gcc -shared -O0 {c_file} -o {dll_file}"
         #             subprocess.check_call(cmd.split())
                     
         #         print(f"Solver compiled to {dll_file}")
@@ -422,7 +421,11 @@ class MultiStackNMPCController(BaseController):
         """
         Returns all optimized actions AND predicted states in the horizon.
         Actions shape: (N, n_controls) [I_1..4, v_lye_1..4, v_c]
-        States shape: (N, n_pred_states) [T_s_in, T_s_1..4, T_sep, T_c_out]
+        States shape: (N, 13) [T_s_in, T_s_1..4, T_sep, T_c_out, n_H2_an_1..4, n_liq, n_gas]
+        Note: The simplified NMPC model only predicts thermal states (7 vars). 
+        The other 6 states (n_H2_an, n_liq, n_gas) are not dynamically evolved in the controller's simplified model.
+        We will pad them with the initial values (constant assumption for short horizon) or simple integration if possible.
+        For now, we return constant values for non-thermal states to match the 13-dim requirement.
         """
         u_opt = self.solve_nmpc(state_vec, P_ref_vec, T_ref)
         
@@ -438,6 +441,7 @@ class MultiStackNMPCController(BaseController):
             self.last_v_c = v_c_cmd
             
             # 1. Actions
+            # u_opt is flat (N * n_controls)
             actions = u_opt.reshape(self.horizon, self.n_controls)
             
             # 2. Predicted States
@@ -456,10 +460,23 @@ class MultiStackNMPCController(BaseController):
             p.extend(self.last_v_lye.tolist())
             p.append(self.last_v_c)
             
-            # Evaluate state function
-            # u_opt is flat, p is list
-            pred_states_vec = self.state_func(u_opt, p).full().flatten()
-            pred_states = pred_states_vec.reshape(self.horizon, 7) # 1+4+1+1=7
+            # Evaluate state function for Thermal States (7 vars)
+            # state_func output is flat (N * 7)
+            pred_thermal_vec = self.state_func(u_opt, p).full().flatten()
+            pred_thermal = pred_thermal_vec.reshape(self.horizon, 7) # [T_s_in, T_s(4), T_sep, T_c_out]
+            
+            # 3. Construct Full 13-dim State
+            # Non-thermal states from initial condition:
+            # n_H2_an_vec (4), n_liq (1), n_gas (1) -> indices 7-12 in state_vec
+            non_thermal_initial = state_vec[7:13] # Shape (6,)
+            
+            # Repeat non-thermal states for the whole horizon (Simplification)
+            # In reality, n_H2_an changes fast, n_liq/n_gas change slowly.
+            # But NMPC simplified model doesn't track them.
+            pred_non_thermal = np.tile(non_thermal_initial, (self.horizon, 1))
+            
+            # Concatenate: [Thermal(7), Non-Thermal(6)] -> (N, 13)
+            pred_states = np.hstack([pred_thermal, pred_non_thermal])
             
             return actions, pred_states
         else:
@@ -468,15 +485,8 @@ class MultiStackNMPCController(BaseController):
             actions = np.tile(last_action, (self.horizon, 1))
             
             # Return current state repeated (best guess if failed)
-            # State vector input: T_s_in(1), T_s_vec(4), T_sep(1), T_c_out(1) ...
-            # Extract relevant thermal states from input state_vec
-            # state_vec: [T_s_in, T_s_vec(4), T_sep, T_c_out, ...]
-            current_thermal = np.concatenate([
-                state_vec[0:1], # T_s_in
-                state_vec[1:5], # T_s_vec
-                state_vec[5:6], # T_sep
-                state_vec[6:7]  # T_c_out
-            ])
-            pred_states = np.tile(current_thermal, (self.horizon, 1))
+            # state_vec is already 13-dim
+            current_state_flat = state_vec.flatten()
+            pred_states = np.tile(current_state_flat, (self.horizon, 1))
             
             return actions, pred_states
