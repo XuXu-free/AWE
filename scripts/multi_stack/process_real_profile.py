@@ -4,8 +4,10 @@ import os
 from datetime import datetime
 
 def process_profile_monthly():
-    input_file = r'd:\Projects\AWE\dataset\ods031.csv'
-    output_base_dir = r'd:\Projects\AWE\output\power\wind'
+    # Use relative paths based on script location
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    input_file = os.path.join(base_dir, 'dataset', 'ods031.csv')
+    output_base_dir = os.path.join(base_dir, 'output', 'power', 'wind')
     
     print(f"Reading {input_file}...")
     df = pd.read_csv(input_file, sep=';')

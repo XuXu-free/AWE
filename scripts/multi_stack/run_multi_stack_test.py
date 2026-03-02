@@ -15,10 +15,6 @@ from plant.multi_stack_simulator import MultiStackSimulator
 from controller.multi_stack.multi_stack_nmpc_controller import MultiStackNMPCController
 from controller.multi_stack.multi_stack_diffusion_controller import MultiStackDiffusionController
 
-# Noise Constants
-SIGMA_T = 0.5      # Temperature noise (K)
-SIGMA_N_H2 = 0.1   # H2 moles noise (mol)
-SIGMA_N_SEP = 0.5  # Separator level/gas noise (mol)
 
 def add_measurement_noise(state):
     """

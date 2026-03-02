@@ -24,18 +24,22 @@ class SingleStackSimulator(BaseSimulator):
         self.T_am = 298.0
         self.T_c_in = 288.0
         self.C_s_i = 3.450e7
-        self.C_sep = 5.193e7
-        self.C_he = 2.175e7
-        self.C_c = 2e7
+        self.C_sep = 1e7
+        self.C_he = 5e6
+        # NOTE unknown
+        self.C_c = 5e6
+        # NOTE unsure
         self.A_he = 240
+        # NOTE unsure
         self.k_he = 960
         self.c_lye = 3200
         self.c_cw = 4200
         self.rho_lye = 1280.0
         self.rho_cw = 1000.0
+        # NOTE unknown
         self.segma_s = 1000
-        # Scaled down for single stack system assumption
-        self.segma_sep = 50 * self.N 
+        # NOTE unknown
+        self.segma_sep = 50 
         
         # Geometry / Radiation
         self.A_stack = 80 
@@ -60,14 +64,25 @@ class SingleStackSimulator(BaseSimulator):
         
         # Initial Conditions
         self.T_s_init = 358.0 # 85 C
-        self.T_sep_init = 345.0 # 72 C
+        self.T_s_in_init = 345.0 # 72 C
+        self.T_sep_init = self.T_s_init
         self.HTO_init = 0.52 # %
         self.T_c_out_init = 325.0 
         
         # Control Limits
-        self.v_lye_max = 0.0335
-        self.v_lye_min = 0.0101
-        self.v_c_max = 0.032
+        self.T_min = 20.0
+        self.T_max = 90.0
+        self.I_min = 0.0
+        self.I_max = 7800.0 * 1.2
+        self.v_lye_min = 0.0
+        self.v_lye_max = 0.1
+        self.v_c_min = 0.0
+        self.v_c_max = 1.0
+
+        self.P_stack_max = 6.0e6
+        self.P_stack_min = 0.0
+        self.U_cell_min = 0.0
+        self.U_cell_max = 2.2
         
     def _calculate_h2_solubility(self):
         # Calculate H2 Solubility in Lye (S_H2) [mol/(m^3 Pa)]
@@ -242,16 +257,22 @@ class SingleStackSimulator(BaseSimulator):
             # x = [T_s_in, T_s, T_sep, T_c_out, n_H2_an, n_H2_sep_liq, n_H2_sep_gas]
             x0 = np.zeros(7)
             
-            x0[0] = self.T_s_init
+            # T_s_in
+            x0[0] = self.T_s_in_init
+            # T_s
             x0[1] = self.T_s_init
+            # T_sep
             x0[2] = self.T_sep_init
+            # T_c_out
             x0[3] = self.T_c_out_init
             
+
             target_HTO_fraction = self.HTO_init / 100.0
             n_gas = target_HTO_fraction * (self.p_sys * self.V_sep_gas) / (self.R * self.T_sep_init)
             
-            x0[4] = n_gas / 4 # Approximate anode hold-up scaling
+            x0[4] = n_gas
             x0[5] = n_gas
+
             x0[6] = n_gas
             
             self.state = x0

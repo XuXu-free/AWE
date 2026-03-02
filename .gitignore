@@ -211,6 +211,6 @@ output/
 .tasks/
 
 # NMPC Solver generated files
-nmpc_solver.c
-nmpc_solver.dll
-nmpc_solver.so
+*nmpc_solver.c
+*nmpc_solver.dll
+*nmpc_solver.so

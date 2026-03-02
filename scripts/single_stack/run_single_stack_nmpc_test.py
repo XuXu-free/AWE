@@ -2,6 +2,8 @@
 import sys
 import os
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import csv
 from datetime import datetime
@@ -17,8 +19,10 @@ def save_plot(history, output_dir, filename):
     if len(t_arr) == 0:
         return
         
-    T_s_all = np.array(history['T_s_all']) # Shape: (N,) or (N, 1)
-    U_cell_all = np.array(history['U_cell_all']) # Shape: (N,) or (N, 1)
+    T_s_all = np.array(history['T_s_all']) # Shape: (N,)
+    U_cell_all = np.array(history['U_cell_all']) # Shape: (N,)
+    I_all = np.array(history['I']) # Shape: (N,)
+    v_lye_all = np.array(history['v_lye']) # Shape: (N,)
     
     fig, axes = plt.subplots(3, 3, figsize=(18, 15))
     
@@ -32,14 +36,15 @@ def save_plot(history, output_dir, filename):
     ax.legend()
     ax.grid(True)
     
-    # System Temperatures
+    # All Temperatures
     ax = axes[0,1]
     ax.plot(t_arr, history['T_sep'], 'g--', label='Separator')
     ax.plot(t_arr, history['T_c_out'], 'c:', label='CW Out')
+    ax.plot(t_arr, T_s_all, 'r-', label='Stack')
     ax.plot(t_arr, history['T_ref'], 'k--', linewidth=1.5, label='Ref Temp')
     ax.axvline(x=0, color='gray', linestyle=':')
-    ax.set_title('System Temperatures')
-    ax.set_ylabel('°C')
+    ax.set_title('All Temperatures')
+    ax.set_ylabel('K')
     ax.legend()
     ax.grid(True)
     
@@ -51,43 +56,35 @@ def save_plot(history, output_dir, filename):
     ax.set_ylabel('%')
     ax.grid(True)
     
-    # Stack Temperatures
+    # Stack Current
     ax = axes[1,0]
-    ax.plot(t_arr, T_s_all, label='Stack')
-    ax.plot(t_arr, history['T_ref'], 'k--', linewidth=1.5, label='Ref Temp')
-    ax.axvline(x=0, color='gray', linestyle=':')
-    ax.set_title('Stack Temperature')
-    ax.set_ylabel('°C')
-    ax.legend()
-    ax.grid(True)
-    
-    # Current
-    ax = axes[1,1]
-    ax.plot(t_arr, history['I'], 'b-')
+    ax.plot(t_arr, I_all, 'b-', label='Stack')
     ax.axvline(x=0, color='gray', linestyle=':')
     ax.set_title('Stack Current')
     ax.set_ylabel('Amps')
+    ax.legend()
     ax.grid(True)
     
-    # Stack Voltages
-    ax = axes[1,2]
-    ax.plot(t_arr, U_cell_all, label='Stack')
+    # Stack Voltage
+    ax = axes[1,1]
+    ax.plot(t_arr, U_cell_all, 'b-', label='Stack')
     ax.axvline(x=0, color='gray', linestyle=':')
     ax.set_title('Cell Voltage')
     ax.set_ylabel('Volts')
     ax.legend()
     ax.grid(True)
     
-    # Lye Flow
-    ax = axes[2,0]
-    ax.plot(t_arr, history['v_lye'], 'orange', label='Lye')
+    # Stack Lye Flow
+    ax = axes[1,2]
+    ax.plot(t_arr, v_lye_all, 'orange', label='Stack')
     ax.axvline(x=0, color='gray', linestyle=':')
-    ax.set_title('Lye Flow')
+    ax.set_title('Stack Lye Flow')
     ax.set_ylabel('m3/s')
+    ax.legend()
     ax.grid(True)
-
-    # CW Flow
-    ax = axes[2,1]
+    
+    # Coolant Flow
+    ax = axes[2,0]
     ax.plot(t_arr, history['v_c'], 'cyan', label='CW')
     ax.axvline(x=0, color='gray', linestyle=':')
     ax.set_title('Coolant Flow')
@@ -95,12 +92,16 @@ def save_plot(history, output_dir, filename):
     ax.grid(True)
     
     # H2 Production Rate
-    ax = axes[2,2]
+    ax = axes[2,1]
     ax.plot(t_arr, history['H2_rate'], 'g-', label='H2 Rate')
     ax.axvline(x=0, color='gray', linestyle=':')
     ax.set_title('H2 Production Rate')
     ax.set_ylabel('mol/s')
     ax.grid(True)
+    
+    # Empty
+    ax = axes[2,2]
+    ax.axis('off')
     
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, filename))
@@ -193,10 +194,10 @@ def run_warmup_phase(sim, ctrl, history, last_action, dt, warmup_duration=1000, 
         
         # Extract State
         # x = [T_s_in, T_s, T_sep, T_c_out, n_H2_an, n_H2_sep_liq, n_H2_sep_gas]
-        T_s_in = sim.state[0] - 273.15
-        T_s = sim.state[1] - 273.15
-        T_sep = sim.state[2] - 273.15
-        T_c_out = sim.state[3] - 273.15
+        T_s_in = sim.state[0]
+        T_s = sim.state[1]
+        T_sep = sim.state[2]
+        T_c_out = sim.state[3]
         n_H2_an = sim.state[4]
         n_liq = sim.state[5]
         n_gas = sim.state[6]
@@ -263,7 +264,7 @@ def run_test():
     # Setup
     dt = 1.0
     sim = SingleStackSimulator(dt=dt)
-    ctrl = SingleStackNMPCController(dt=10.0, horizon=10)
+    ctrl = SingleStackNMPCController(dt=10.0, N_p=10)
     
     # Init
     sim.reset()
@@ -334,7 +335,7 @@ def run_test():
         # Control
         # Always compute P_future for logging, even if control doesn't update
         P_future = []
-        for k in range(ctrl.N):
+        for k in range(ctrl.N_p):
             t_future = t + k * ctrl.dt
             idx_future = int(t_future / dt)
             if idx_future < len(P_ref_profile):
@@ -383,14 +384,14 @@ def run_test():
         # Periodic Plot Update (every 2000s)
         if t > 0 and t % 2000 == 0:
             print(f"Updating progress plot at t={t}s...")
-            output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'output'))
+            output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'output', 'single_stack'))
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
             save_plot(history, output_dir, 'single_stack_nmpc_test_progress.png')
             save_data_csv(history, output_dir, data_filename)
             
     # Plot
-    output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'output'))
+    output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'output', 'single_stack'))
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         

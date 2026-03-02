@@ -4,7 +4,7 @@ from .base_simulator import BaseSimulator
 from scipy.integrate import solve_ivp
 
 class MultiStackSimulator(BaseSimulator):
-    def __init__(self, dt=0.02):
+    def __init__(self, dt=0.2):
         super().__init__(dt)
         # --- Parameters from Table 2 and Paper ---
         self.N = 4
@@ -67,7 +67,6 @@ class MultiStackSimulator(BaseSimulator):
         self.S_H2_lye = self._calculate_h2_solubility()
         
         self.R = 8.314
-        
         self.mu_lye = 8.76e-4
         
         # Initial Conditions (Open Loop)
