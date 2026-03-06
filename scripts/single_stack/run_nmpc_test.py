@@ -12,7 +12,7 @@ from datetime import datetime
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from plant.single_stack_simulator import SingleStackSimulator
-from controller.single_stack.single_stack_nmpc_controller import SingleStackNMPCController
+from controller.single_stack.nmpc_controller import SingleStackNMPCController
 
 def save_plot(history, output_dir, filename):
     t_arr = np.array(history['t'])
@@ -243,7 +243,7 @@ def run_warmup_phase(sim, ctrl, history, last_action, dt, warmup_duration=1000, 
         history['n_gas'].append(n_gas)
         history['T_ref'].append(85.0 + 273.15) # Log in Kelvin
         # P_ref_future is constant during warmup
-        history['P_ref_future'].append([warmup_P_ref] * ctrl.N)
+        history['P_ref_future'].append([warmup_P_ref] * ctrl.N_p)
         history['I_prev'].append(prev_action[0])
         history['v_lye_prev'].append(prev_action[1])
         history['v_c_prev'].append(prev_action[2])
@@ -264,7 +264,7 @@ def run_test():
     # Setup
     dt = 1.0
     sim = SingleStackSimulator(dt=dt)
-    ctrl = SingleStackNMPCController(dt=10.0, N_p=10)
+    ctrl = SingleStackNMPCController(dt=10.0, N_p=5)
     
     # Init
     sim.reset()
@@ -299,7 +299,7 @@ def run_test():
 
     print("Starting Single Stack NMPC Test...")
     
-    data_filename = f"single_stack_nmpc_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    data_filename = f"nmpc_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     
     # Loop
     # Initialize P_future for the first step if not already available
@@ -337,7 +337,7 @@ def run_test():
         P_future = []
         for k in range(ctrl.N_p):
             t_future = t + k * ctrl.dt
-            idx_future = int(t_future / dt)
+            idx_future = int(np.round(t_future / dt))
             if idx_future < len(P_ref_profile):
                 P_future.append(P_ref_profile[idx_future])
             else:
@@ -384,18 +384,18 @@ def run_test():
         # Periodic Plot Update (every 2000s)
         if t > 0 and t % 2000 == 0:
             print(f"Updating progress plot at t={t}s...")
-            output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'output', 'single_stack'))
+            output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'output', 'single_stack', 'test'))
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
-            save_plot(history, output_dir, 'single_stack_nmpc_test_progress.png')
+            save_plot(history, output_dir, data_filename.replace('.csv', '_progress.png'))
             save_data_csv(history, output_dir, data_filename)
             
     # Plot
-    output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'output', 'single_stack'))
+    output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'output', 'single_stack', 'test'))
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         
-    save_plot(history, output_dir, 'single_stack_nmpc_test.png')
+    save_plot(history, output_dir, data_filename.replace('.csv', '.png'))
     save_data_csv(history, output_dir, data_filename)
     
     # RMSE

@@ -110,7 +110,7 @@ class SingleStackDataset(Dataset):
             
             # Save stats
             output_dir = os.path.dirname(csv_file)
-            stats_path = os.path.join(output_dir, 'diffusion_stats_single.npz')
+            stats_path = os.path.join(output_dir, 'diffusion_stats.npz')
             np.savez(stats_path, 
                      cond_min=self.cond_min, cond_max=self.cond_max,
                      action_min=self.action_min, action_max=self.action_max)
@@ -167,6 +167,7 @@ def train(args):
     model = FlowMatchingTCN(
         action_dim=dataset.action_dim, # 7
         obs_dim=dataset.cond_dim, # 10+N
+        horizon=args.horizon,
         hidden_dim=256,
         levels=4
     )
@@ -223,7 +224,7 @@ def train(args):
         # Save Best
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
-            save_path = os.path.join(args.output_dir, 'diffusion_policy_single_best.pth')
+            save_path = os.path.join(args.output_dir, 'diffusion_policy_best.pth')
             torch.save(model.state_dict(), save_path)
             print(f"Saved best model to {save_path}")
 
@@ -247,9 +248,14 @@ if __name__ == "__main__":
             files.sort(reverse=True)
             latest_csv = os.path.join(default_data_dir, files[0])
     
+    # Default output dir for policy
+    default_output_dir = r'c:\Users\admin\Desktop\sjtu\AWE\output\single_stack\policy'
+    if not os.path.exists(default_output_dir):
+        os.makedirs(default_output_dir)
+
     parser.add_argument('--data_path', type=str, default=latest_csv, help='Path to dataset CSV')
-    parser.add_argument('--output_dir', type=str, default=default_data_dir)
-    parser.add_argument('--horizon', type=int, default=10) # Matches dataset generation
+    parser.add_argument('--output_dir', type=str, default=default_output_dir)
+    parser.add_argument('--horizon', type=int, default=5, help='Prediction horizon')
     parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--lr', type=float, default=1e-4)

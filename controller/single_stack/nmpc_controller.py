@@ -234,8 +234,14 @@ class SingleStackNMPCController:
         nlp = {'x': self.U, 'f': obj, 'g': ca.vertcat(*g), 'p': self.P}
         opts = {'ipopt.print_level': 0, 'print_time': 0, 'ipopt.tol': 1e-4}
         
-        c_file = 'single_stack_nmpc_solver.c'
-        dll_file = 'single_stack_nmpc_solver.dll'
+        # Define paths for solver artifacts
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        output_dir = os.path.join(project_root, 'output', 'single_stack')
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        c_file = os.path.join(output_dir, 'nmpc_solver.c')
+        dll_file = os.path.join(output_dir, 'nmpc_solver.dll')
         
         if os.path.exists(dll_file):
             # print(f"Loading compiled solver from {dll_file}")

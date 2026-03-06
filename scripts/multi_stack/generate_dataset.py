@@ -13,12 +13,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 from plant.multi_stack_simulator import MultiStackSimulator
 from controller.multi_stack.nmpc_controller import MultiStackNMPCController
 
-def load_real_profile():
-    profile_path = r'd:\Projects\AWE\output\real_power_profile.csv'
-    if not os.path.exists(profile_path):
-        raise FileNotFoundError(f"Real profile not found at {profile_path}. Run process_real_profile.py first.")
-    df = pd.read_csv(profile_path)
-    return df['P_ref'].values
 
 def randomize_state(sim):
     # Reset to base
@@ -312,6 +306,11 @@ def generate_dataset():
     if start_step == 0:
         # Randomize Initial Condition ONCE if starting fresh
         randomize_state(sim)
+        
+        # Initialize previous actions for logging
+        I_prev = np.zeros(4)
+        v_lye_prev = np.zeros(4)
+        v_c_prev = 0.0
     
     # Reset Controller State (only if not resumed, but controller init resets it anyway, so we just restored it above if needed)
     # If starting fresh, prev_sol_x is None. If resumed, we don't have prev_sol_x, so it will warm start from last_I (Cold-ish start)

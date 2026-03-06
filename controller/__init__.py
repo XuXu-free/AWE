@@ -1,3 +1,3 @@
 from .base_controller import BaseController
-from .single_stack.single_stack_nmpc_controller import SingleStackNMPCController
+from .single_stack.nmpc_controller import SingleStackNMPCController
 from .multi_stack.nmpc_controller import MultiStackNMPCController

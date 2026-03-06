@@ -13,7 +13,7 @@ from tqdm import tqdm
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from plant.single_stack_simulator import SingleStackSimulator
-from controller.single_stack.single_stack_nmpc_controller import SingleStackNMPCController
+from controller.single_stack.nmpc_controller import SingleStackNMPCController
 
 def randomize_state(sim):
     # Reset to base
@@ -40,7 +40,7 @@ def save_and_plot(data_list, output_dir, timestamp):
     df = pd.DataFrame(data_list)
     
     # Save CSV
-    csv_file = os.path.join(output_dir, f"nmpc_dataset_single_{timestamp}.csv")
+    csv_file = os.path.join(output_dir, f"nmpc_dataset_{timestamp}.csv")
     df.to_csv(csv_file, index=False)
     print(f"Dataset saved to: {csv_file}")
     
@@ -127,7 +127,7 @@ def save_and_plot(data_list, output_dir, timestamp):
     ax.axis('off')
             
     plt.tight_layout()
-    plot_file = os.path.join(output_dir, f"nmpc_dataset_single_{timestamp}.png")
+    plot_file = os.path.join(output_dir, f"nmpc_dataset_{timestamp}.png")
     plt.savefig(plot_file)
     print(f"Plots saved to: {plot_file}")
     plt.close()
@@ -135,7 +135,7 @@ def save_and_plot(data_list, output_dir, timestamp):
 def load_monthly_profiles():
     import glob
     # Use relative path
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'output', 'power', 'wind_single'))
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'output', 'power', 'single_stack'))
     # Load January 2025 data
     pattern = os.path.join(base_dir, 'wind_power_2025-01_1min.csv')
     files = sorted(glob.glob(pattern))

@@ -7,7 +7,7 @@ def process_profile_monthly_single_stack():
     # Use relative paths based on script location
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     input_file = os.path.join(base_dir, 'dataset', 'ods031.csv')
-    output_base_dir = os.path.join(base_dir, 'output', 'power', 'wind_single')
+    output_base_dir = os.path.join(base_dir, 'output', 'power', 'single_stack')
     
     print(f"Reading {input_file}...")
     df = pd.read_csv(input_file, sep=';')
