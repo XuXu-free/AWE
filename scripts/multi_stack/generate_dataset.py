@@ -18,21 +18,23 @@ def randomize_state(sim):
     # Reset to base
     sim.reset()
     
-    # Randomize Temperatures
-    # T_s: 20C to 90C (293K to 363K)
-    T_base = np.random.uniform(293.0, 363.0)
-    # Add small variation between stacks
-    sim.state[0] = T_base - np.random.uniform(0, 5) # T_s_in slightly cooler
-    sim.state[1:5] = T_base + np.random.uniform(-2, 2, size=4)
+    # # Randomize Temperatures
+    # # T_s: 20C to 90C (293K to 363K)
+    # T_base = np.random.uniform(293.0, 363.0)
+    # # Add small variation between stacks
+    # sim.state[0] = T_base - np.random.uniform(0, 5) # T_s_in slightly cooler
+    # sim.state[1:controller.n_stacks+1] = T_base + np.random.uniform(-2, 2, size=controller.n_stacks)
     
-    # T_sep: similar to T_s
-    sim.state[5] = T_base - np.random.uniform(2, 10)
+    # # T_sep: similar to T_s
+    # sim.state[controller.n_stacks+1] = T_base - np.random.uniform(2, 10)
     
-    # T_c_out
-    sim.state[6] = np.random.uniform(293.0, 340.0)
+    # # T_c_out
+    # sim.state[6] = np.random.uniform(293.0, 340.0)
     
-    # Gas levels (Start with some gas or empty)
-    sim.state[12] = np.random.uniform(0, 100) # n_gas
+    # # Gas levels (Start with some gas or empty)
+    # sim.state[7:11] = np.random.uniform(0, 100, size=4) # n_H2_an_1..4
+    # sim.state[11] = np.random.uniform(0, 100) # n_liq
+    # sim.state[12] = np.random.uniform(0, 100) # n_gas
     
     return sim
 
@@ -192,7 +194,14 @@ def load_monthly_profiles():
     full_profile = np.concatenate(all_profiles)
     return full_profile
 
+import argparse
+
 def generate_dataset():
+    # Parse arguments
+    parser = argparse.ArgumentParser(description='Generate NMPC dataset for multi-stack AWE.')
+    parser.add_argument('--continue', dest='continue_gen', action='store_true', help='Continue from existing dataset if available')
+    args = parser.parse_args()
+    
     # Configuration
     # dt_ctrl = 1 min = 60 s
     dt_ctrl = 60.0
@@ -247,7 +256,7 @@ def generate_dataset():
     # Check for existing data to resume
     # Look for the latest csv in output_dir
     csv_files = [f for f in os.listdir(output_dir) if f.endswith('.csv') and 'nmpc_dataset' in f]
-    if csv_files:
+    if csv_files and args.continue_gen:
         latest_csv_name = max(csv_files, key=lambda x: os.path.getctime(os.path.join(output_dir, x)))
         latest_csv_path = os.path.join(output_dir, latest_csv_name)
         
@@ -308,8 +317,8 @@ def generate_dataset():
         randomize_state(sim)
         
         # Initialize previous actions for logging
-        I_prev = np.zeros(4)
-        v_lye_prev = np.zeros(4)
+        I_prev = np.ones(controller.n_stacks) * 2000
+        v_lye_prev = np.ones(controller.n_stacks) * 0.3
         v_c_prev = 0.0
     
     # Reset Controller State (only if not resumed, but controller init resets it anyway, so we just restored it above if needed)
@@ -341,16 +350,16 @@ def generate_dataset():
 
             # 2. Determine Action via NMPC
             try:
-                u_opt_matrix, states_matrix = controller.get_all_actions_states(current_state, P_ref_future, T_ref)
+                u_opt_matrix, states_matrix = controller.get_all_actions_states(current_state, P_ref_future, T_ref, [I_prev, v_lye_prev, v_c_prev])
             except Exception as e:
                 print(f"NMPC failed at step {t}: {e}")
                 break
                 
             # Extract first action for execution
             u0 = u_opt_matrix[0]
-            I_cmd = u0[0:4]
-            v_lye_cmd = u0[4:8]
-            v_c_cmd = u0[8]
+            I_cmd = u0[0:controller.n_stacks]
+            v_lye_cmd = u0[controller.n_stacks:2*controller.n_stacks]
+            v_c_cmd = u0[2*controller.n_stacks]
             
             # 3. Calculate derived properties (Instantaneous at start)
             _, U_cell_vec, _ = sim._calculate_electrochemical_properties(I_cmd, T_s_vec)
@@ -391,7 +400,7 @@ def generate_dataset():
                 'H2_rate': H2_rate_total,
                 # Vectors
                 'T_s_1': T_s_vec[0], 'T_s_2': T_s_vec[1], 'T_s_3': T_s_vec[2], 'T_s_4': T_s_vec[3],
-                'n_H2_an_1': n_H2_an_vec[0], 'n_H2_an_2': n_H2_an_vec[1], 'n_H2_an_3': n_H2_an_vec[2], 'n_H2_an_4': n_H2_an_vec[3],
+                f'n_H2_an_1': n_H2_an_vec[0], f'n_H2_an_2': n_H2_an_vec[1], f'n_H2_an_3': n_H2_an_vec[2], f'n_H2_an_4': n_H2_an_vec[3],
                 'I_prev_1': I_prev[0], 'I_prev_2': I_prev[1], 'I_prev_3': I_prev[2], 'I_prev_4': I_prev[3],
                 'v_lye_prev_1': v_lye_prev[0], 'v_lye_prev_2': v_lye_prev[1], 'v_lye_prev_3': v_lye_prev[2], 'v_lye_prev_4': v_lye_prev[3],
                 'I_1': I_cmd[0], 'I_2': I_cmd[1], 'I_3': I_cmd[2], 'I_4': I_cmd[3],
@@ -406,22 +415,22 @@ def generate_dataset():
                 s_k = states_matrix[k]
                 
                 # Actions
-                for i in range(4):
+                for i in range(controller.n_stacks):
                     row[f'plan_step_{k}_I_{i+1}'] = u_k[i]
-                for i in range(4):
-                    row[f'plan_step_{k}_v_lye_{i+1}'] = u_k[4+i]
-                row[f'plan_step_{k}_v_c'] = u_k[8]
+                for i in range(controller.n_stacks):
+                    row[f'plan_step_{k}_v_lye_{i+1}'] = u_k[controller.n_stacks+i]
+                row[f'plan_step_{k}_v_c'] = u_k[2*controller.n_stacks]
                 
                 # States [T_s_in, T_s_1..4, T_sep, T_c_out, n_H2_an_1..4, n_liq, n_gas]
                 # s_k indices: 0: T_s_in, 1-4: T_s, 5: T_sep, 6: T_c_out, 7-10: n_H2_an, 11: n_liq, 12: n_gas
                 row[f'plan_step_{k}_state_T_s_in'] = s_k[0]
-                for i in range(4):
+                for i in range(controller.n_stacks):
                     row[f'plan_step_{k}_state_T_s_{i+1}'] = s_k[1+i]
                 row[f'plan_step_{k}_state_T_sep'] = s_k[5]
                 row[f'plan_step_{k}_state_T_c_out'] = s_k[6]
                 
                 # Non-thermal states
-                for i in range(4):
+                for i in range(controller.n_stacks):
                     row[f'plan_step_{k}_state_n_H2_an_{i+1}'] = s_k[7+i]
                 row[f'plan_step_{k}_state_n_liq'] = s_k[11]
                 row[f'plan_step_{k}_state_n_gas'] = s_k[12]

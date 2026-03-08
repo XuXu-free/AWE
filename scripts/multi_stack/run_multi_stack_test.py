@@ -180,7 +180,9 @@ def log_and_visualize(i, t, history, full_profile, profile_indices, P_real, T_s_
         save_data_csv(history, output_dir, data_filename)
         save_plot(history, output_dir, data_filename)
 
-def calculate_metrics(history, duration):
+import json
+
+def calculate_metrics(history, duration, output_dir, filename):
     # Calculate RMSE
     t_arr = np.array(history['t'])
     P_ref_arr = np.array(history['P_ref'])
@@ -193,13 +195,26 @@ def calculate_metrics(history, duration):
     T_ref_arr = np.array(history['T_ref'])
     
     # Metrics
-    rmse_p = np.sqrt(np.mean((P_real_arr - P_ref_arr)**2)) / 1e6
-    rmse_t = np.sqrt(np.mean((T_s_mean - T_ref_arr)**2))
+    rmse_p = float(np.sqrt(np.mean((P_real_arr - P_ref_arr)**2)) / 1e6)
+    rmse_t = float(np.sqrt(np.mean((T_s_mean - T_ref_arr)**2)))
     
+    metrics = {
+        "duration": duration,
+        "rmse_power_mw": rmse_p,
+        "rmse_temp_k": rmse_t
+    }
+    
+    json_filename = filename.replace('.csv', '_metrics.json')
+    json_path = os.path.join(output_dir, json_filename)
+    
+    with open(json_path, 'w') as f:
+        json.dump(metrics, f, indent=4)
+        
     print("-" * 50)
     print(f"Performance Metrics (Duration: {duration}s)")
     print(f"Power RMSE: {rmse_p:.3f} MW")
     print(f"Temp RMSE:  {rmse_t:.3f} K")
+    print(f"Metrics saved to {json_path}")
     print("-" * 50)
     
     print("Test Complete. Results saved.")
@@ -356,7 +371,7 @@ def run_test(controller_type='nmpc', model_type='tcn'):
         
     save_data_csv(history, output_dir, data_filename)
     save_plot(history, output_dir, data_filename)
-    calculate_metrics(history, duration)
+    calculate_metrics(history, duration, output_dir, data_filename)
 
 def save_plot(history, output_dir, filename):
     t_arr = np.array(history['t'])

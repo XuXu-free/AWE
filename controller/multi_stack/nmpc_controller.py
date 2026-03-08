@@ -434,8 +434,8 @@ class MultiStackNMPCController(BaseController):
     def get_all_actions_states(self, state_vec, P_ref_vec, T_ref, last_action):
         """
         Returns all optimized actions AND predicted states in the horizon.
-        Actions shape: (N, n_controls) [I_1..4, v_lye_1..4, v_c]
-        States shape: (N, 13) [T_s_in, T_s_1..4, T_sep, T_c_out, n_H2_an_1..4, n_liq, n_gas]
+        Actions shape: (N, n_controls) [I_1..n_stacks, v_lye_1..n_stacks, v_c]
+        States shape: (N, 13) [T_s_in, T_s_1..n_stacks, T_sep, T_c_out, n_H2_an_1..n_stacks, n_liq, n_gas]
         Note: The simplified NMPC model only predicts thermal states (7 vars). 
         The other 6 states (n_H2_an, n_liq, n_gas) are not dynamically evolved in the controller's simplified model.
         We will pad them with the initial values (constant assumption for short horizon) or simple integration if possible.
