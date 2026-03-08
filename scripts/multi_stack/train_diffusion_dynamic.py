@@ -12,7 +12,7 @@ import argparse
 # Add parent directory to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from diffusion.model import DiffusionTCN
+from diffusion.models import DiffusionTCN
 from diffusion.ddpm import DDPMScheduler
 
 class DynamicsTrajectoryDataset(Dataset):

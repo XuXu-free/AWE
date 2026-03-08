@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 # Add parent directory to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from diffusion.model import DiffusionMLP, DiffusionTCN, FlowMatchingTCN
+from diffusion.models import DiffusionMLP, DiffusionTCN, FlowMatchingTCN, FlowMatchingMLP
 from diffusion.ddpm import DDPMScheduler
 from diffusion.flow_matching import FlowMatchingScheduler
 
@@ -75,10 +75,10 @@ class SingleStackDataset(Dataset):
         self.cond_data[:, base_idx + 2] = df['v_c_prev'].values
         
         # --- Construct Action Sequence (Target) ---
-        # Action Dim per step: 3 (controls) + 4 (states) = 7
-        # I, v_lye, v_c, T_s_in, T_s, T_sep, T_c_out
+        # Action Dim per step: 3 (controls)
+        # I, v_lye, v_c
         
-        self.action_dim = 7
+        self.action_dim = 3
         self.action_seq_data = np.zeros((n_samples, self.action_dim, self.horizon))
         
         for k in range(self.horizon):
@@ -87,21 +87,10 @@ class SingleStackDataset(Dataset):
             col_v_lye = f'plan_step_{k}_v_lye'
             col_v_c = f'plan_step_{k}_v_c'
             
-            # States
-            col_Ts_in = f'plan_step_{k}_state_T_s_in'
-            col_Ts = f'plan_step_{k}_state_T_s'
-            col_Tsep = f'plan_step_{k}_state_T_sep'
-            col_Tcout = f'plan_step_{k}_state_T_c_out'
-            
             if col_I in df.columns:
                 self.action_seq_data[:, 0, k] = df[col_I].values
                 self.action_seq_data[:, 1, k] = df[col_v_lye].values
                 self.action_seq_data[:, 2, k] = df[col_v_c].values
-                
-                self.action_seq_data[:, 3, k] = df[col_Ts_in].values
-                self.action_seq_data[:, 4, k] = df[col_Ts].values
-                self.action_seq_data[:, 5, k] = df[col_Tsep].values
-                self.action_seq_data[:, 6, k] = df[col_Tcout].values
         
         # Normalization
         self.normalize = normalize
@@ -163,20 +152,69 @@ def train(args):
     print(f"Train size: {train_size}, Val size: {val_size}")
     print(f"Condition Dim: {dataset.cond_dim}, Action Dim: {dataset.action_dim}, Horizon: {args.horizon}")
     
-    # 2. Model
-    model = FlowMatchingTCN(
-        action_dim=dataset.action_dim, # 7
-        obs_dim=dataset.cond_dim, # 10+N
-        horizon=args.horizon,
-        hidden_dim=256,
-        levels=4
-    )
-    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model.to(device)
+
+    # 2. Model
+    if args.model_type == 'flow_tcn':
+        model = FlowMatchingTCN(
+            action_dim=dataset.action_dim, # 7
+            obs_dim=dataset.cond_dim, # 10+N
+            horizon=args.horizon,
+            hidden_dim=256,
+            levels=4
+        )
+        noise_scheduler = FlowMatchingScheduler(sigma_min=1e-4, device=device)
+    elif args.model_type == 'flow_mlp':
+        model = FlowMatchingMLP(
+            action_dim=dataset.action_dim,
+            obs_dim=dataset.cond_dim,
+            horizon=args.horizon,
+            hidden_dim=256,
+            num_res_blocks=3
+        )
+        noise_scheduler = FlowMatchingScheduler(sigma_min=1e-4, device=device)
+    elif args.model_type == 'diffusion_tcn':
+        model = DiffusionTCN(
+            output_dim=dataset.action_dim,
+            cond_dim=dataset.cond_dim,
+            output_num=args.horizon,
+            hidden_dim=256,
+            levels=4
+        )
+        noise_scheduler = DDPMScheduler(num_timesteps=100, device=device)
+    elif args.model_type == 'diffusion_mlp':
+        model = DiffusionMLP(
+            action_dim=dataset.action_dim,
+            obs_dim=dataset.cond_dim,
+            horizon=args.horizon,
+            hidden_dim=256,
+            num_res_blocks=3
+        )
+        noise_scheduler = DDPMScheduler(num_timesteps=100, device=device)
+    else:
+        raise ValueError(f"Unknown model type: {args.model_type}")
     
-    # 3. Scheduler
-    noise_scheduler = FlowMatchingScheduler(sigma_min=1e-4, device=device)
+    model.to(device)
+    noise_scheduler.device = device # Ensure scheduler knows device if needed
+    
+    print("-" * 50)
+    print(f"Model Initialized Successfully")
+    print(f"Type: {args.model_type}")
+    print(f"Device: {device}")
+    print(f"Action Dim: {dataset.action_dim}")
+    print(f"Observation Dim: {dataset.cond_dim}")
+    print(f"Horizon: {args.horizon}")
+    print(f"Hidden Dim: 256")
+    if 'tcn' in args.model_type:
+        print(f"Levels: 4")
+    else:
+        print(f"Res Blocks: 3")
+        
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Total Parameters: {total_params}")
+    print(f"Trainable Parameters: {trainable_params}")
+    print("-" * 50)
     
     # 4. Optimizer
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
@@ -190,10 +228,13 @@ def train(args):
         train_loss = 0
         for cond, action_seq in train_loader:
             cond = cond.to(device)
-            action_seq = action_seq.to(device) # (B, 7, H)
+            action_seq = action_seq.to(device)
             
-            # Flow Matching Loss
-            loss = noise_scheduler.compute_loss(model, action_seq, cond)
+            if 'flow' in args.model_type:
+                loss = noise_scheduler.compute_loss(model, action_seq, cond)
+            else:
+                timesteps = torch.randint(0, noise_scheduler.num_timesteps, (action_seq.shape[0],), device=device).long()
+                loss = noise_scheduler.p_losses(model, action_seq, timesteps, cond)
             
             optimizer.zero_grad()
             loss.backward()
@@ -211,7 +252,12 @@ def train(args):
                 cond = cond.to(device)
                 action_seq = action_seq.to(device)
                 
-                loss = noise_scheduler.compute_loss(model, action_seq, cond)
+                if 'flow' in args.model_type:
+                    loss = noise_scheduler.compute_loss(model, action_seq, cond)
+                else:
+                    timesteps = torch.randint(0, noise_scheduler.num_timesteps, (action_seq.shape[0],), device=device).long()
+                    loss = noise_scheduler.p_losses(model, action_seq, timesteps, cond)
+                    
                 val_loss += loss.item()
                 
         avg_val_loss = val_loss / len(val_loader)
@@ -224,7 +270,7 @@ def train(args):
         # Save Best
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
-            save_path = os.path.join(args.output_dir, 'diffusion_policy_best.pth')
+            save_path = os.path.join(args.output_dir, f'{args.model_type}_policy_best.pth')
             torch.save(model.state_dict(), save_path)
             print(f"Saved best model to {save_path}")
 
@@ -233,7 +279,7 @@ def train(args):
     plt.plot(history['train_loss'], label='Train')
     plt.plot(history['val_loss'], label='Val')
     plt.legend()
-    plt.savefig(os.path.join(args.output_dir, 'training_curve.png'))
+    plt.savefig(os.path.join(args.output_dir, f'{args.model_type}_training_curve.png'))
     print("Training complete.")
 
 if __name__ == "__main__":
@@ -259,6 +305,7 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--lr', type=float, default=1e-4)
+    parser.add_argument('--model_type', type=str, default='diffusion_tcn', choices=['diffusion_tcn', 'diffusion_mlp', 'flow_tcn', 'flow_mlp'], help='Model type: diffusion_tcn, diffusion_mlp, flow_tcn, flow_mlp')
     
     args = parser.parse_args()
     

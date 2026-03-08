@@ -4,7 +4,7 @@ import sys
 import torch
 import numpy as np
 from ..base_controller import BaseController
-from diffusion.model import DiffusionMLP, DiffusionTCN, FlowMatchingTCN
+from diffusion.models import DiffusionMLP, DiffusionTCN, FlowMatchingTCN, FlowMatchingMLP
 from diffusion.ddpm import DDPMScheduler
 from diffusion.flow_matching import FlowMatchingScheduler
 try:
@@ -14,7 +14,7 @@ except ImportError:
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
     from plant.multi_stack_simulator import MultiStackSimulator
 
-class MultiStackDiffusionController(BaseController):
+class MultiStackModelController(BaseController):
     def __init__(self, dt=1.0, horizon=10, model_type='tcn', model_path=None, stats_path=r'd:\Projects\AWE\output\multi_stack\diffusion_stats.npz'):
         super().__init__(dt)
         self.horizon = horizon
@@ -66,13 +66,21 @@ class MultiStackDiffusionController(BaseController):
         
         self.obs_dim = 1 + 4 + 1 + 1 + 4 + 1 + 1 + 1 + horizon + 9 # Fixed 9 for prev action
         
-        if model_type == 'mlp':
-            self.model = DiffusionMLP(action_dim=self.action_dim, obs_dim=self.obs_dim).to(self.device)
-        elif model_type == 'flow_matching':
+        if model_type == 'diffusion_mlp':
+            self.model = DiffusionMLP(action_dim=self.action_dim, obs_dim=self.obs_dim, horizon=horizon).to(self.device)
+            self.scheduler = DDPMScheduler(device=self.device)
+        elif model_type == 'flow_mlp':
+            self.model = FlowMatchingMLP(action_dim=self.action_dim, obs_dim=self.obs_dim, horizon=horizon).to(self.device)
+            self.scheduler = FlowMatchingScheduler(device=self.device)
+        elif model_type == 'flow_tcn':
             self.model = FlowMatchingTCN(action_dim=self.action_dim, obs_dim=self.obs_dim, horizon=horizon).to(self.device)
+            self.scheduler = FlowMatchingScheduler(device=self.device)
+        elif model_type == 'diffusion_tcn':
+            self.model = DiffusionTCN(output_dim=self.action_dim, cond_dim=self.obs_dim, output_num=horizon, levels=4).to(self.device)
+            self.scheduler = DDPMScheduler(device=self.device)
         else:
-            self.model = DiffusionTCN(output_dim=self.action_dim, cond_dim=self.obs_dim, output_num=horizon).to(self.device)
-            
+            raise ValueError(f"Unknown model_type: {model_type}")
+
         if not os.path.exists(model_path):
              if os.path.exists(os.path.join('..', model_path)):
                 model_path = os.path.join('..', model_path)
@@ -81,11 +89,26 @@ class MultiStackDiffusionController(BaseController):
                 
         self.model.load_state_dict(torch.load(model_path, map_location=self.device))
         self.model.eval()
-        
-        if model_type == 'flow_matching':
-            self.scheduler = FlowMatchingScheduler(device=self.device)
+
+        print("-" * 50)
+        print(f"Model Loaded Successfully")
+        print(f"Path: {model_path}")
+        print(f"Type: {model_type}")
+        print(f"Device: {self.device}")
+        print(f"Action Dim: {self.action_dim}")
+        print(f"Observation Dim: {self.obs_dim}")
+        print(f"Horizon: {self.horizon}")
+        print(f"Hidden Dim: 256")
+        if 'tcn' in model_type:
+             print("Levels: 4")
         else:
-            self.scheduler = DDPMScheduler(device=self.device)
+             print("Res Blocks: 3")
+             
+        total_params = sum(p.numel() for p in self.model.parameters())
+        trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        print(f"Total Parameters: {total_params}")
+        print(f"Trainable Parameters: {trainable_params}")
+        print("-" * 50)
         
         # Internal state for previous action
         # I(4), v_lye(4), v_c(1)
@@ -173,7 +196,13 @@ class MultiStackDiffusionController(BaseController):
         cond_norm_batch = cond_norm.repeat(num_candidates, 1)
         
         # Sample sequence: (Batch, Action_Dim, Horizon)
-        samples_norm = self.scheduler.sample(self.model, cond_norm_batch, (num_candidates, self.action_dim, self.horizon))
+        # Using a small noise_scale to improve diversity/robustness
+        noise_scale = 0.05 if isinstance(self.scheduler, FlowMatchingScheduler) else 0.0
+        if isinstance(self.scheduler, FlowMatchingScheduler):
+             samples_norm = self.scheduler.sample(self.model, cond_norm_batch, (num_candidates, self.action_dim, self.horizon), noise_scale=noise_scale)
+        else:
+             # DDPMScheduler
+             samples_norm = self.scheduler.sample(self.model, cond_norm_batch, (num_candidates, self.action_dim, self.horizon))
         
         # 4. Denormalize
         samples_norm = torch.clamp(samples_norm, -1.0, 1.0)

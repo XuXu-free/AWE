@@ -46,7 +46,7 @@ class FlowMatchingScheduler:
         return loss
 
     @torch.no_grad()
-    def sample(self, model, cond, shape, steps=50):
+    def sample(self, model, cond, shape, steps=50, noise_scale=0.0):
         """
         Generate samples using Euler integration.
         shape: tuple of output shape (e.g. (batch_size, action_dim) or (batch_size, action_dim, horizon))
@@ -68,5 +68,11 @@ class FlowMatchingScheduler:
             
             # Euler Step
             x = x + v * dt
+            
+            # Add Noise (Langevin-like heuristic)
+            if noise_scale > 0:
+                # Add noise scaled by sqrt(dt)
+                noise = torch.randn_like(x) * noise_scale * np.sqrt(dt)
+                x = x + noise
             
         return x

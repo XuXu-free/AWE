@@ -1,113 +1,6 @@
-
 import torch
 import torch.nn as nn
-import math
-
-class SinusoidalPosEmb(nn.Module):
-    def __init__(self, dim):
-        super().__init__()
-        self.dim = dim
-
-    def forward(self, x):
-        # This is a common way to embed time steps in diffusion models.
-        # It maps a scalar t to a vector of dimension dim.
-        # The embedding is periodic with a period of 10000.
-        #
-        # Implements the standard sinusoidal position embedding:
-        # PE(t, 2i)   = sin(t / 10000^(2i / dim))
-        # PE(t, 2i+1) = cos(t / 10000^(2i / dim))
-        #
-        # Where:
-        # t is the time step (scalar)
-        # i is the dimension index (0 <= i < dim/2)
-        # dim is the embedding dimension
-        #
-        # The term `emb` calculated below corresponds to: 1 / 10000^(2i / dim)
-        # which is equivalent to: exp(-2i * log(10000) / dim)
-        # Actually, code uses (dim//2 - 1) in denominator, slightly adjusting the frequency spread.
-
-        device = x.device
-        half_dim = self.dim // 2
-        emb = math.log(10000) / (half_dim - 1)
-        emb = torch.exp(torch.arange(half_dim, device=device) * -emb)
-        emb = x[:, None] * emb[None, :]
-        emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
-        return emb
-
-class ResidualBlock(nn.Module):
-    def __init__(self, hidden_dim, dropout=0.1):
-        super().__init__()
-        self.norm1 = nn.LayerNorm(hidden_dim)
-        self.linear1 = nn.Linear(hidden_dim, hidden_dim)
-        self.act = nn.Mish()  # Mish is commonly used in diffusion models
-        self.dropout = nn.Dropout(dropout)
-        self.linear2 = nn.Linear(hidden_dim, hidden_dim)
-
-    def forward(self, x):
-        h = self.norm1(x)
-        h = self.linear1(h)
-        h = self.act(h)
-        h = self.dropout(h)
-        h = self.linear2(h)
-        return x + h
-
-class DiffusionMLP(nn.Module):
-    def __init__(
-        self, 
-        action_dim, 
-        obs_dim, 
-        hidden_dim=256, 
-        num_res_blocks=3, 
-        dropout=0.0
-    ):
-        super().__init__()
-        self.action_dim = action_dim
-        self.obs_dim = obs_dim
-        
-        # Timestep embedding
-        self.time_dim = hidden_dim
-        self.time_mlp = nn.Sequential(
-            SinusoidalPosEmb(hidden_dim),
-            nn.Linear(hidden_dim, hidden_dim * 2),
-            nn.Mish(),
-            nn.Linear(hidden_dim * 2, hidden_dim),
-        )
-
-        # Input projection
-        self.input_proj = nn.Linear(action_dim, hidden_dim)
-        self.cond_proj = nn.Linear(obs_dim, hidden_dim)
-        
-        # Main trunk
-        self.blocks = nn.ModuleList([
-            ResidualBlock(hidden_dim, dropout) for _ in range(num_res_blocks)
-        ])
-        
-        # Final output
-        self.final_norm = nn.LayerNorm(hidden_dim)
-        self.output_proj = nn.Linear(hidden_dim, action_dim)
-
-    def forward(self, x, t, cond):
-        """
-        x: (batch, action_dim) - Noisy action
-        t: (batch,) - Timestep
-        cond: (batch, obs_dim) - Observation/Condition
-        """
-        # Embeddings
-        t_emb = self.time_mlp(t)
-        x_emb = self.input_proj(x)
-        cond_emb = self.cond_proj(cond)
-        
-        # Combine: usually simple addition or concatenation. 
-        # Here we add them to the hidden state.
-        h = x_emb + t_emb + cond_emb
-        
-        # Residual Blocks
-        for block in self.blocks:
-            h = block(h)
-            
-        h = self.final_norm(h)
-        output = self.output_proj(h)
-        return output
+from .common import SinusoidalPosEmb
 
 class Chomp1d(nn.Module):
     def __init__(self, chomp_size):
@@ -118,7 +11,7 @@ class Chomp1d(nn.Module):
         return x[:, :, :-self.chomp_size].contiguous()
 
 class TemporalBlock(nn.Module):
-    def __init__(self, n_inputs, n_outputs, kernel_size, stride, dilation, padding, dropout=0.2):
+    def __init__(self, n_inputs, n_outputs, kernel_size, stride, dilation, padding, dropout=0.0):
         super(TemporalBlock, self).__init__()
         self.conv1 = nn.Conv1d(n_inputs, n_outputs, kernel_size,
                                stride=stride, padding=padding, dilation=dilation)

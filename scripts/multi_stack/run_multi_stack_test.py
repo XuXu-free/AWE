@@ -14,8 +14,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 
 from plant.multi_stack_simulator import MultiStackSimulator
 from controller.multi_stack.nmpc_controller import MultiStackNMPCController
-from controller.multi_stack.diffusion_controller import MultiStackDiffusionController
-from controller.multi_stack.diffusion_dynamic_controller import MultiStackDiffusionDynamicController
+from controller.multi_stack.model_controller import MultiStackModelController
+from controller.multi_stack.model_dynamic_controller import MultiStackModelDynamicController
 
 def add_measurement_noise(state):
     """
@@ -144,19 +144,20 @@ def run_test(controller_type='nmpc', model_type='tcn'):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
     stats_path = os.path.join(project_root, 'output', 'multi_stack', 'diffusion_stats.npz')
-    model_path = os.path.join(project_root, 'output', 'multi_stack', 'model', f'best_diffusion_policy_model_{model_type}.pth')
+    # Try new path structure first
+    model_path = os.path.join(project_root, 'output', 'multi_stack', 'policy', f'{model_type}_policy_best.pth')
     
     if controller_type == 'nmpc':
         ctrl = MultiStackNMPCController(dt=dt_ctrl, horizon=horizon, dt_sub=sim_dt)
         print("Using NMPC Controller")
-    elif controller_type == 'diffusion':
-        ctrl = MultiStackDiffusionController(dt=dt_ctrl, horizon=horizon, model_type=model_type, 
+    elif controller_type == 'model':
+        ctrl = MultiStackModelController(dt=dt_ctrl, horizon=horizon, model_type=model_type, 
                                              model_path=model_path, stats_path=stats_path)
-        print(f"Using Diffusion Controller ({model_type})")
-    elif controller_type == 'diffusion_dynamic':
-        ctrl = MultiStackDiffusionDynamicController(dt=dt_ctrl, horizon=horizon, model_type=model_type, 
+        print(f"Using Model Controller ({model_type})")
+    elif controller_type == 'model_dynamic':
+        ctrl = MultiStackModelDynamicController(dt=dt_ctrl, horizon=horizon, model_type=model_type, 
                                              model_path=model_path, stats_path=stats_path)
-        print(f"Using Diffusion Dynamic Controller ({model_type})")
+        print(f"Using Model Dynamic Controller ({model_type})")
     else:
         raise ValueError(f"Unknown controller type: {controller_type}")
     
@@ -208,7 +209,10 @@ def run_test(controller_type='nmpc', model_type='tcn'):
     profile_indices = (t_eval / 60).astype(int)
     profile_indices = np.clip(profile_indices, 0, len(full_profile)-1)
     
-    with tqdm(total=len(t_eval), desc="Testing", unit="step") as pbar:
+    # Calculate total control steps
+    total_ctrl_steps = len(t_eval) // ctrl_steps
+    
+    with tqdm(total=total_ctrl_steps, desc="Testing", unit="ctrl_step") as pbar:
         for i, t in enumerate(t_eval):
             # Measure State (with noise)
             measured_state = add_measurement_noise(sim.state)
@@ -292,8 +296,8 @@ def run_test(controller_type='nmpc', model_type='tcn'):
                 history['HTO'].append(hto_pct)
                 history['H2_rate'].append(h2_rate)
             
-            # Update progress bar
-            if i % 100 == 0:
+            # Update progress bar (on control steps)
+            if i % ctrl_steps == 0:
                 P_ref_val = full_profile[profile_indices[i]]
                 pbar.set_postfix({
                     "t": f"{t:.0f}s",
@@ -301,7 +305,7 @@ def run_test(controller_type='nmpc', model_type='tcn'):
                     "P_real": f"{P_real/1e6:.1f}MW",
                     "T_s": f"{np.mean(T_s_vec)-273.15:.1f}C"
                 })
-            pbar.update(1)
+                pbar.update(1)
             
             # Periodic Plot Update (every 3600s)
             if t > 0 and i % (3600 * 5) == 0: # Every hour
@@ -476,8 +480,10 @@ def save_data_csv(history, output_dir, filename):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run Multi-Stack Test')
-    parser.add_argument('--controller', type=str, default='diffusion', choices=['nmpc', 'diffusion', 'diffusion_dynamic'], help='Controller type')
-    parser.add_argument('--model_type', type=str, default='tcn', choices=['mlp', 'tcn', 'flow_matching'], help='Diffusion model type (only for diffusion controller)')
+    parser.add_argument('--controller', type=str, default='model', choices=['nmpc', 'model', 'model_dynamic'], help='Controller type')
+    parser.add_argument('--model_type', type=str, default='flow_tcn', 
+                        choices=['diffusion_mlp', 'diffusion_tcn', 'flow_mlp', 'flow_tcn', 'mlp', 'tcn', 'flow_matching'], 
+                        help='Model type (only for model controller)')
     args = parser.parse_args()
     
     run_test(controller_type=args.controller, model_type=args.model_type)

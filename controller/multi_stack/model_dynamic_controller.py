@@ -3,11 +3,11 @@ import os
 import sys
 import torch
 import numpy as np
-from .diffusion_controller import MultiStackDiffusionController
-from diffusion.model import DiffusionTCN
+from .model_controller import MultiStackModelController
+from diffusion.models import DiffusionTCN
 from diffusion.ddpm import DDPMScheduler
 
-class MultiStackDiffusionDynamicController(MultiStackDiffusionController):
+class MultiStackModelDynamicController(MultiStackModelController):
     def __init__(self, dt=60.0, horizon=5, model_type='tcn', 
                  model_path=None, stats_path=None,
                  dyn_model_path=None, dyn_stats_path=None):
@@ -73,6 +73,19 @@ class MultiStackDiffusionDynamicController(MultiStackDiffusionController):
             
         self.dyn_model.load_state_dict(torch.load(dyn_model_path, map_location=self.device))
         self.dyn_model.eval()
+        
+        print("-" * 50)
+        print(f"Dynamics Model Loaded Successfully")
+        print(f"Path: {dyn_model_path}")
+        print(f"Device: {self.device}")
+        print(f"Target Dim: {self.dyn_target_dim}")
+        print(f"Condition Dim: {self.dyn_cond_dim}")
+        print(f"Horizon: {self.horizon}")
+        print(f"Hidden Dim: 256")
+        
+        total_params = sum(p.numel() for p in self.dyn_model.parameters())
+        print(f"Total Parameters: {total_params}")
+        print("-" * 50)
         
         # Scheduler for Dynamics (DDPM)
         self.dyn_scheduler = DDPMScheduler(device=self.device)

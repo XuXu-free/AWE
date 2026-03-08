@@ -13,7 +13,7 @@ import argparse
 # Add parent directory to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from diffusion.model import DiffusionMLP, DiffusionTCN, FlowMatchingTCN
+from diffusion.models import DiffusionMLP, DiffusionTCN, FlowMatchingTCN, FlowMatchingMLP
 from diffusion.ddpm import DDPMScheduler
 from diffusion.flow_matching import FlowMatchingScheduler
 
@@ -49,9 +49,8 @@ class AWEDataset(Dataset):
         self.cond_dim = 1 + 4 + 1 + 1 + 4 + 1 + 1 + 1 + self.horizon + 4 + 4 + 1
         self.cond_data = np.zeros((n_samples, self.cond_dim))
         
-        # Action: I(4), v_lye(4), v_c(1) + States(7)
-        # States: T_s_in(1), T_s(4), T_sep(1), T_c_out(1)
-        self.action_dim = 4 + 4 + 1 + 1 + 4 + 1 + 1 # 16
+        # Action: I(4), v_lye(4), v_c(1)
+        self.action_dim = 4 + 4 + 1 # 9
         self.action_data = np.zeros((n_samples, self.action_dim))
         
         # Helper to get column data
@@ -184,14 +183,13 @@ class AWEDataset(Dataset):
 
     def _load_action_data(self, get_col, n_samples):
         # 2. Fill Action Data (Sequence)
-        # Action dim: 16 (9 controls + 7 states). Sequence length: Horizon.
+        # Action dim: 9 (9 controls). Sequence length: Horizon.
         # Shape: (n_samples, action_dim, horizon) for TCN/FlowMatching
         
-        self.action_seq_data = np.zeros((n_samples, 16, self.horizon))
+        self.action_seq_data = np.zeros((n_samples, 9, self.horizon))
         
         # We need to reconstruct the plan from the dataset columns
         # Columns format: plan_step_{k}_I_{i}, plan_step_{k}_v_lye_{i}, plan_step_{k}_v_c
-        # And States: plan_step_{k}_state_T_s_in, plan_step_{k}_state_T_s_{i}, plan_step_{k}_state_T_sep, plan_step_{k}_state_T_c_out
         
         # Check if plan columns exist
         if 'plan_step_0_I_1' in self.col_map:
@@ -212,32 +210,6 @@ class AWEDataset(Dataset):
                 col_name = f'plan_step_{k}_v_c'
                 if col_name in self.col_map:
                     self.action_seq_data[:, 8, k] = get_col(col_name)
-                
-                # States (7)
-                # T_s_in (1) -> index 9
-                col_name = f'plan_step_{k}_state_T_s_in'
-                if col_name in self.col_map:
-                    self.action_seq_data[:, 9, k] = get_col(col_name)
-                else:
-                    # Fallback if missing (e.g. old dataset)
-                    # Use cond T_s_in if k=0? Or just 0.
-                    pass
-                
-                # T_s (4) -> indices 10-13
-                for i in range(4):
-                    col_name = f'plan_step_{k}_state_T_s_{i+1}'
-                    if col_name in self.col_map:
-                        self.action_seq_data[:, 10+i, k] = get_col(col_name)
-                
-                # T_sep (1) -> index 14
-                col_name = f'plan_step_{k}_state_T_sep'
-                if col_name in self.col_map:
-                    self.action_seq_data[:, 14, k] = get_col(col_name)
-                    
-                # T_c_out (1) -> index 15
-                col_name = f'plan_step_{k}_state_T_c_out'
-                if col_name in self.col_map:
-                    self.action_seq_data[:, 15, k] = get_col(col_name)
                     
         else:
             # Fallback for old datasets (just repeat single action or shift?)
@@ -262,29 +234,7 @@ class AWEDataset(Dataset):
             if 'v_c' in self.col_map:
                 self.action_seq_data[:, 8, :] = get_col('v_c')[:, None]
                 
-            # Fill states with current states repeated?
-            # T_s_in
-            if 'T_s_in' in self.col_map:
-                self.action_seq_data[:, 9, :] = get_col('T_s_in')[:, None]
-            # T_s
-            if 'T_s_1' in self.col_map:
-                self.action_seq_data[:, 10, :] = get_col('T_s_1')[:, None]
-                self.action_seq_data[:, 11, :] = get_col('T_s_2')[:, None]
-                self.action_seq_data[:, 12, :] = get_col('T_s_3')[:, None]
-                self.action_seq_data[:, 13, :] = get_col('T_s_4')[:, None]
-            # T_sep
-            if 'T_sep' in self.col_map:
-                self.action_seq_data[:, 14, :] = get_col('T_sep')[:, None]
-            # T_c_out
-            if 'T_c_out' in self.col_map:
-                self.action_seq_data[:, 15, :] = get_col('T_c_out')[:, None]
-
-        # For MLP, we might still want flattened or single step. 
-        # But user asked for "actions sequence".
-        # If model is MLP, we might need to flatten or just predict first step?
-        # Usually Diffusion Policy predicts sequence.
-        
-        self.action_dim = 16 # Total dimension
+        self.action_dim = 9 # Total dimension
 
     def _normalize_data(self):
         # Min-Max Normalization
@@ -301,14 +251,11 @@ class AWEDataset(Dataset):
         v_lye_min, v_lye_max = 0.0, 0.1
         v_c_min, v_c_max = 0.0, 1.0
         
-        # Construct Action Min/Max vectors (16,)
-        # I(4), v_lye(4), v_c(1), T_s_in(1), T_s(4), T_sep(1), T_c_out(1)
+        # Construct Action Min/Max vectors (9,)
+        # I(4), v_lye(4), v_c(1)
         
-        state_mins = [280.0] + [280.0]*4 + [280.0] + [280.0] # Generous bounds
-        state_maxs = [380.0] + [380.0]*4 + [380.0] + [380.0]
-        
-        self.action_min = np.array([I_min]*4 + [v_lye_min]*4 + [v_c_min] + state_mins)
-        self.action_max = np.array([I_max]*4 + [v_lye_max]*4 + [v_c_max] + state_maxs)
+        self.action_min = np.array([I_min]*4 + [v_lye_min]*4 + [v_c_min])
+        self.action_max = np.array([I_max]*4 + [v_lye_max]*4 + [v_c_max])
         
         act_diff = self.action_max - self.action_min
         act_diff[act_diff < 1e-6] = 1.0
@@ -316,7 +263,7 @@ class AWEDataset(Dataset):
         self.cond_data = (self.cond_data - self.cond_min) / diff
         
         # Normalize actions to [-1, 1] for diffusion
-        # Expand dims for broadcasting: (1, 16, 1)
+        # Expand dims for broadcasting: (1, 9, 1)
         act_min_b = self.action_min[None, :, None]
         act_diff_b = act_diff[None, :, None]
         
@@ -332,31 +279,13 @@ class AWEDataset(Dataset):
         action = torch.FloatTensor(self.action_seq_data[idx]) # (9, Horizon)
         return cond, action
 
-def train():
-    parser = argparse.ArgumentParser(description='Train Diffusion Policy')
-    parser.add_argument('--model_type', type=str, default='tcn', choices=['mlp', 'tcn', 'flow_matching'], help='Model type: mlp, tcn, or flow_matching')
-    parser.add_argument('--epochs', type=int, default=50, help='Number of training epochs')
-    args = parser.parse_args()
-
+def train(args):
     # Configuration
-    # Find latest CSV
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
-    output_dir = os.path.join(project_root, 'output', 'multi_stack', 'dataset')
-    
-    # Look for nmpc_dataset (generated) or nmpc_data (logs)
-    csv_files = [f for f in os.listdir(output_dir) if f.endswith('.csv') and ('nmpc_dataset' in f)]
-    if not csv_files:
-        print("No CSV data found!")
-        return
-    latest_csv = max([os.path.join(output_dir, f) for f in csv_files], key=os.path.getctime)
-    print(f"Using dataset: {latest_csv}")
-    
-    csv_path = latest_csv
-    batch_size = 64
+    csv_path = args.data_path
+    batch_size = args.batch_size
     num_epochs = args.epochs
-    lr = 1e-4
-    horizon = 5
+    lr = args.lr
+    horizon = args.horizon
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     print(f"Using device: {device}")
@@ -369,7 +298,7 @@ def train():
     dataset = AWEDataset(csv_path, horizon=horizon)
     
     # Split into train and test
-    train_size = int(0.8 * len(dataset))
+    train_size = int(0.9 * len(dataset))
     test_size = len(dataset) - train_size
     train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
     
@@ -384,149 +313,157 @@ def train():
     
     print(f"Observation Dim: {obs_dim}, Action Dim: {action_dim}")
     
-    if args.model_type == 'mlp':
-        model = DiffusionMLP(action_dim=action_dim, obs_dim=obs_dim).to(device)
-        print("Using ConditionalDiffusionMLP model")
-    elif args.model_type == 'tcn':
-        model = DiffusionTCN(output_dim=action_dim, cond_dim=obs_dim, output_num=horizon).to(device)
-        print("Using TCNDiffusion model")
-    elif args.model_type == 'flow_matching':
-        # Flow Matching uses the same architecture as TCN Diffusion
-        model = FlowMatchingTCN(action_dim=action_dim, obs_dim=obs_dim, horizon=horizon).to(device)
-        print("Using FlowMatchingTCN model for Flow Matching")
-    
-    if args.model_type == 'flow_matching':
-        scheduler = FlowMatchingScheduler(device=device)
-        print("Time steps: Continuous [0, 1] (Flow Matching)")
+    if args.model_type == 'flow_tcn':
+        model = FlowMatchingTCN(
+            action_dim=action_dim,
+            obs_dim=obs_dim,
+            horizon=horizon,
+            hidden_dim=256,
+            levels=4
+        )
+        noise_scheduler = FlowMatchingScheduler(sigma_min=1e-4, device=device)
+    elif args.model_type == 'flow_mlp':
+        model = FlowMatchingMLP(
+            action_dim=action_dim,
+            obs_dim=obs_dim,
+            horizon=horizon,
+            hidden_dim=256,
+            num_res_blocks=3
+        )
+        noise_scheduler = FlowMatchingScheduler(sigma_min=1e-4, device=device)
+    elif args.model_type == 'diffusion_tcn':
+        model = DiffusionTCN(
+            output_dim=action_dim,
+            cond_dim=obs_dim,
+            output_num=horizon,
+            hidden_dim=256,
+            levels=4
+        )
+        noise_scheduler = DDPMScheduler(device=device)
+    elif args.model_type == 'diffusion_mlp':
+        model = DiffusionMLP(
+            action_dim=action_dim,
+            obs_dim=obs_dim,
+            horizon=horizon,
+            hidden_dim=256,
+            num_res_blocks=3
+        )
+        noise_scheduler = DDPMScheduler(device=device)
     else:
-        scheduler = DDPMScheduler(device=device)
-        print(f"Time steps: {scheduler.num_timesteps} (DDPM)")
+        raise ValueError(f"Unknown model type: {args.model_type}")
+    
+    model.to(device)
+    noise_scheduler.device = device
+
+    print("-" * 50)
+    print(f"Model Initialized Successfully")
+    print(f"Type: {args.model_type}")
+    print(f"Device: {device}")
+    print(f"Action Dim: {action_dim}")
+    print(f"Observation Dim: {obs_dim}")
+    print(f"Horizon: {horizon}")
+    print(f"Hidden Dim: 256")
+    if 'tcn' in args.model_type:
+        print(f"Levels: 4")
+    else:
+        print(f"Res Blocks: 3")
         
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Total Parameters: {total_params}")
+    print(f"Trainable Parameters: {trainable_params}")
+    print("-" * 50)
+
     optimizer = optim.Adam(model.parameters(), lr=lr)
     
-    # Training Loop
-    print("Starting training...")
-    
-    # Plotting setup
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    import pandas as pd
-    
-    model_dir = os.path.join(project_root, 'output', 'multi_stack', 'model')
-    if not os.path.exists(model_dir):
-        os.makedirs(model_dir)
-
-    history_path = os.path.join(model_dir, f'loss_history_{args.model_type}.csv')
+    # Loop
     best_test_loss = float('inf')
-    loss_history = []
+    history = {'train_loss': [], 'test_loss': []}
     
-    try:
-        with tqdm(range(num_epochs), desc="Training", unit="epoch") as pbar:
-            for epoch in pbar:
-                model.train()
-                train_loss = 0
-                for cond, action in train_loader:
-                    cond = cond.to(device)
-                    action = action.to(device) # x_start
-                    
-                    if args.model_type == 'flow_matching':
-                        # Flow Matching Loss
-                        loss = scheduler.compute_loss(model, action, cond)
-                    else:
-                        # DDPM Loss
-                        # Sample timesteps
-                        t = torch.randint(0, scheduler.num_timesteps, (cond.shape[0],), device=device).long()
-                        # Compute loss
-                        loss = scheduler.p_losses(model, action, t, cond)
-                    
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
-                    
-                    train_loss += loss.item()
+    for epoch in range(num_epochs):
+        model.train()
+        train_loss = 0
+        for cond, action_seq in tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}", leave=False):
+            cond = cond.to(device)
+            action_seq = action_seq.to(device)
+            
+            if 'flow' in args.model_type:
+                loss = noise_scheduler.compute_loss(model, action_seq, cond)
+            else:
+                timesteps = torch.randint(0, noise_scheduler.num_timesteps, (action_seq.shape[0],), device=device).long()
+                loss = noise_scheduler.p_losses(model, action_seq, timesteps, cond)
+            
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            
+            train_loss += loss.item()
+            
+        avg_train_loss = train_loss / len(train_loader)
+        
+        # Validation
+        model.eval()
+        test_loss = 0
+        with torch.no_grad():
+            for cond, action_seq in test_loader:
+                cond = cond.to(device)
+                action_seq = action_seq.to(device)
                 
-                # Validation
-                model.eval()
-                test_loss = 0
-                with torch.no_grad():
-                    for cond, action in test_loader:
-                        cond = cond.to(device)
-                        action = action.to(device)
-                        
-                        if args.model_type == 'flow_matching':
-                            loss = scheduler.compute_loss(model, action, cond)
-                        else:
-                            t = torch.randint(0, scheduler.num_timesteps, (cond.shape[0],), device=device).long()
-                            loss = scheduler.p_losses(model, action, t, cond)
-                        test_loss += loss.item()
+                if 'flow' in args.model_type:
+                    loss = noise_scheduler.compute_loss(model, action_seq, cond)
+                else:
+                    timesteps = torch.randint(0, noise_scheduler.num_timesteps, (action_seq.shape[0],), device=device).long()
+                    loss = noise_scheduler.p_losses(model, action_seq, timesteps, cond)
+                    
+                test_loss += loss.item()
+                
+        avg_test_loss = test_loss / len(test_loader)
+        
+        history['train_loss'].append(avg_train_loss)
+        history['test_loss'].append(avg_test_loss)
+        
+        print(f"Epoch {epoch+1}/{num_epochs} | Train Loss: {avg_train_loss:.6f} | Test Loss: {avg_test_loss:.6f}")
+        
+        # Save Best
+        if avg_test_loss < best_test_loss:
+            best_test_loss = avg_test_loss
+            if not os.path.exists(args.output_dir):
+                os.makedirs(args.output_dir)
+            save_path = os.path.join(args.output_dir, f'{args.model_type}_policy_best.pth')
+            torch.save(model.state_dict(), save_path)
+            print(f"Saved best model to {save_path}")
 
-                avg_train_loss = train_loss / len(train_loader)
-                avg_test_loss = test_loss / len(test_loader)
-                
-                # Record history
-                loss_history.append([epoch+1, avg_train_loss, avg_test_loss])
-                
-                # Update pbar
-                pbar.set_postfix({
-                    "Train": f"{avg_train_loss:.6f}",
-                    "Test": f"{avg_test_loss:.6f}"
-                })
-                
-                # Save best model
-                if avg_test_loss < best_test_loss:
-                    best_test_loss = avg_test_loss
-                    best_model_filename = f'best_diffusion_policy_model_{args.model_type}.pth'
-                    torch.save(model.state_dict(), os.path.join(model_dir, best_model_filename))
-                
-                if (epoch + 1) % 10 == 0:
-                     # Save CSV
-                     df_history = pd.DataFrame(loss_history, columns=['epoch', 'train_loss', 'test_loss'])
-                     df_history.to_csv(history_path, index=False)
-                     
-                     # Save Plot
-                     plt.figure(figsize=(10, 6))
-                     plt.plot(df_history['epoch'], df_history['train_loss'], label='Train Loss')
-                     plt.plot(df_history['epoch'], df_history['test_loss'], label='Test Loss')
-                     plt.xlabel('Epoch')
-                     plt.ylabel('Loss')
-                     plt.title(f'Diffusion Policy Training Loss ({args.model_type})')
-                     plt.legend()
-                     plt.grid(True)
-                     plot_path = os.path.join(model_dir, f'diffusion_policy_loss_{args.model_type}.png')
-                     plt.savefig(plot_path)
-                     plt.close()
-                
-    except KeyboardInterrupt:
-        print("\nTraining interrupted by user.")
-    finally:
-        # Save loss history
-        with open(history_path, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['epoch', 'train_loss', 'test_loss'])
-            writer.writerows(loss_history)
-        print(f"Loss history saved to {history_path}")
-        
-        # Plot Loss
-        df_history = pd.DataFrame(loss_history, columns=['epoch', 'train_loss', 'test_loss'])
-        plt.figure(figsize=(10, 6))
-        plt.plot(df_history['epoch'], df_history['train_loss'], label='Train Loss')
-        plt.plot(df_history['epoch'], df_history['test_loss'], label='Test Loss')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss')
-        plt.title(f'Diffusion Policy Training Loss ({args.model_type})')
-        plt.legend()
-        plt.grid(True)
-        
-        plot_path = os.path.join(model_dir, f'diffusion_policy_loss_{args.model_type}.png')
-        plt.savefig(plot_path)
-        plt.close()
-        print(f"Loss plot saved to {plot_path}")
-        
-        # Save final model
-        model_filename = f'diffusion_policy_model_{args.model_type}.pth'
-        torch.save(model.state_dict(), os.path.join(model_dir, model_filename))
-        print(f"Model saved to {os.path.join(model_dir, model_filename)}")
+    print("Training complete.")
 
 if __name__ == "__main__":
-    train()
+    parser = argparse.ArgumentParser(description='Train Policy Model (Multi-Stack)')
+    
+    # Find latest CSV
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
+    default_data_dir = os.path.join(project_root, 'output', 'multi_stack', 'dataset')
+    
+    latest_csv = ""
+    if os.path.exists(default_data_dir):
+        # Look for nmpc_dataset (generated) or nmpc_data (logs)
+        csv_files = [f for f in os.listdir(default_data_dir) if f.endswith('.csv') and ('nmpc_dataset' in f)]
+        if csv_files:
+            latest_csv = max([os.path.join(default_data_dir, f) for f in csv_files], key=os.path.getctime)
+    
+    default_output_dir = os.path.join(project_root, 'output', 'multi_stack', 'policy')
+
+    parser.add_argument('--data_path', type=str, default=latest_csv, help='Path to dataset CSV')
+    parser.add_argument('--output_dir', type=str, default=default_output_dir)
+    parser.add_argument('--horizon', type=int, default=5, help='Prediction horizon')
+    parser.add_argument('--epochs', type=int, default=50, help='Number of training epochs')
+    parser.add_argument('--batch_size', type=int, default=64)
+    parser.add_argument('--lr', type=float, default=1e-4)
+    parser.add_argument('--model_type', type=str, default='diffusion_tcn', choices=['diffusion_tcn', 'diffusion_mlp', 'flow_tcn', 'flow_mlp'], help='Model type: diffusion_tcn, diffusion_mlp, flow_tcn, flow_mlp')
+
+    args = parser.parse_args()
+    
+    if not args.data_path or not os.path.exists(args.data_path):
+        print(f"Error: Dataset not found. Please provide --data_path or generate dataset first.")
+    else:
+        print(f"Training on {args.data_path}")
+        train(args)
