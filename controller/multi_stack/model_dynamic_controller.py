@@ -90,7 +90,7 @@ class MultiStackModelDynamicController(MultiStackModelController):
         # Scheduler for Dynamics (DDPM)
         self.dyn_scheduler = DDPMScheduler(device=self.device)
 
-    def get_action(self, state, P_ref, T_ref=358.15):
+    def get_action(self, state, P_ref, T_ref):
         """
         Override get_action to use learned dynamics model for evaluation.
         """

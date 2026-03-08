@@ -20,6 +20,9 @@ class MultiStackNMPCController(BaseController):
         self.r2 = 8.970e-8
         self.r3 = -4.193e-12
         self.P_sys = 1.6e6
+        self.R = 8.314
+        self.V_sep = 10.288
+        self.V_sep_gas = 0.6 * self.V_sep
         self.s = 7.572e-2
         self.t1 = -1.070e-1
         self.t2 = 14.43
@@ -57,6 +60,9 @@ class MultiStackNMPCController(BaseController):
         self.U_cell_min = 0.0
         self.U_cell_max = 2.2
         
+        self.HTO_pct_max = 2.0
+        self.HTO_pct_min = 0.0
+        
         # Targets
         self.T_ref = 358.15 # Default value, updated in get_action
         
@@ -72,13 +78,9 @@ class MultiStackNMPCController(BaseController):
         
         self._setup_solver()
         
-        # Internal State Memory
-        self.last_I = np.zeros(self.n_stacks)
-        self.last_v_lye = np.ones(self.n_stacks) * 0.03
-        self.last_v_c = 0.0
         self.prev_sol_x = None
 
-    def _dynamics_step(self, T_s_in_k, T_s_k, T_sep_k, T_c_out_k, I_k, v_lye_k, v_c_k):
+    def _dynamics_step(self, T_s_in_k, T_s_k, T_sep_k, T_c_out_k, I_k, v_lye_k, v_c_k, n_gas_k):
         """
         Calculates the state at the next time step (k+1) given the current state (k) and inputs.
         Includes sub-stepping for numerical stability.
@@ -134,7 +136,10 @@ class MultiStackNMPCController(BaseController):
             dT_c_out_dt = (self.c_cw * self.rho_cw * v_c_k * (self.T_cw_in - T_c_out_sub) + Q_hx) / self.C_c
             T_c_out_sub = T_c_out_sub + dT_c_out_dt * self.dt_sub
         
-        return T_s_in_sub, T_s_sub, T_sep_sub, T_c_out_sub, Power_k_vec, V_cell
+        # Calculate HTO %
+        hto_pct = (n_gas_k * self.R * T_sep_sub) / (self.P_sys * self.V_sep_gas) * 100
+        
+        return T_s_in_sub, T_s_sub, T_sep_sub, T_c_out_sub, Power_k_vec, V_cell, hto_pct
 
     def _setup_solver(self):
         import os
@@ -164,9 +169,9 @@ class MultiStackNMPCController(BaseController):
         T_ref_val = self.P[p_idx]; p_idx += 1
         P_ref = self.P[p_idx : p_idx+self.horizon]; p_idx += self.horizon
         
-        I_prev = self.P[p_idx : p_idx+self.n_stacks]; p_idx += self.n_stacks
-        v_lye_prev = self.P[p_idx : p_idx+self.n_stacks]; p_idx += self.n_stacks
-        v_c_prev = self.P[p_idx]; p_idx += 1
+        I_0 = self.P[p_idx : p_idx+self.n_stacks]; p_idx += self.n_stacks
+        v_lye_0 = self.P[p_idx : p_idx+self.n_stacks]; p_idx += self.n_stacks
+        v_c_0 = self.P[p_idx]; p_idx += 1
         
         # Convert to Celsius for Internal Model
         T_s_in_k = T_s_in_K
@@ -188,8 +193,8 @@ class MultiStackNMPCController(BaseController):
             v_c_k = uk[2*self.n_stacks]
             
             # --- System Dynamics (Simplified Thermal Model for Control) ---
-            T_s_in_k, T_s_k, T_sep_k, T_c_out_k, Power_k_vec, V_cell = self._dynamics_step(
-                T_s_in_k, T_s_k, T_sep_k, T_c_out_k, I_k, v_lye_k, v_c_k
+            T_s_in_k, T_s_k, T_sep_k, T_c_out_k, Power_k_vec, V_cell, hto_pct = self._dynamics_step(
+                T_s_in_k, T_s_k, T_sep_k, T_c_out_k, I_k, v_lye_k, v_c_k, n_gas
             )
             
             Total_Power_k = ca.sum1(Power_k_vec)
@@ -207,14 +212,14 @@ class MultiStackNMPCController(BaseController):
             # 4. Smoothness & Min Effort
             # I: Penalize rate of change (adjacent steps)
             if k == 0:
-                dI = I_k - I_prev
+                dI = I_k - I_0
             else:
                 uk_prev = self.U[(k-1)*self.n_controls : k*self.n_controls]
                 dI = I_k - uk_prev[0:self.n_stacks]
             
             # v_lye, v_c: Penalize deviation from current state (initial value of horizon)
-            dv_lye = v_lye_k - v_lye_prev
-            dv_c = v_c_k - v_c_prev
+            dv_lye = v_lye_k - v_lye_0
+            dv_c = v_c_k - v_c_0
             
             obj += self.lambda_I * ca.sum1(dI**2)
             obj += self.lambda_lye * ca.sum1(dv_lye**2)
@@ -235,6 +240,11 @@ class MultiStackNMPCController(BaseController):
             g.append(V_cell)
             lbg.extend([self.U_cell_min]*self.n_stacks)
             ubg.extend([self.U_cell_max]*self.n_stacks)
+            
+            # HTO Production Rate (0 <= HTO_pct <= 2%)
+            g.append(hto_pct)
+            lbg.append(self.HTO_pct_min)
+            ubg.append(self.HTO_pct_max)
             
         # Input Bounds
         lbx = []
@@ -338,8 +348,8 @@ class MultiStackNMPCController(BaseController):
             v_c_k = uk[2*self.n_stacks]
             
             # Dynamics (Copy of above)
-            T_s_in_k, T_s_k, T_sep_k, T_c_out_k, _, _ = self._dynamics_step(
-                T_s_in_k, T_s_k, T_sep_k, T_c_out_k, I_k, v_lye_k, v_c_k
+            T_s_in_k, T_s_k, T_sep_k, T_c_out_k, _, _, _ = self._dynamics_step(
+                T_s_in_k, T_s_k, T_sep_k, T_c_out_k, I_k, v_lye_k, v_c_k, n_gas
             )
             
             # Store State: [T_s_in(1), T_s(4), T_sep(1), T_c_out(1)] -> 7
@@ -351,9 +361,13 @@ class MultiStackNMPCController(BaseController):
         # Returns: Concatenated vector of predicted states for each step in the horizon
         self.state_func = ca.Function('state_func', [self.U, self.P], [ca.vertcat(*pred_states)])
 
-    def solve_nmpc(self, state_vec, P_ref_vec, T_ref):
+    def solve_nmpc(self, state_vec, P_ref_vec, T_ref, last_action):
         # Update internal T_ref for logging/reference
         self.T_ref = T_ref
+        
+        last_I = last_action[0]
+        last_v_lye = last_action[1]
+        last_v_c = last_action[2]
 
         # P_ref_vec should be length N. If scalar, repeat.
         if np.isscalar(P_ref_vec):
@@ -378,17 +392,17 @@ class MultiStackNMPCController(BaseController):
             
             for k in range(self.horizon):
                 x0.extend([I_est]*self.n_stacks)
-                x0.extend(self.last_v_lye.tolist())
-                x0.append(self.last_v_c)
+                x0.extend(last_v_lye.tolist())
+                x0.append(last_v_c)
             
         # Construct Parameters
         p = []
         p.extend(state_vec.flatten().tolist()) # Full state vector (13)
         p.append(self.T_ref) # T_ref (Kelvin)
         p.extend(P_ref_vec)  # P_ref (N)
-        p.extend(self.last_I.tolist())
-        p.extend(self.last_v_lye.tolist())
-        p.append(self.last_v_c)
+        p.extend(last_I.tolist())
+        p.extend(last_v_lye.tolist())
+        p.append(last_v_c)
         
         try:
             sol = self.solver(x0=x0, lbx=self.lbx, ubx=self.ubx, lbg=self.lbg, ubg=self.ubg, p=p)
@@ -399,8 +413,12 @@ class MultiStackNMPCController(BaseController):
             print(f"Multi-Stack NMPC Failed: {e}")
             return None
 
-    def get_action(self, state_vec, P_ref_vec, T_ref=358.15):
-        u_opt = self.solve_nmpc(state_vec, P_ref_vec, T_ref)
+    def get_action(self, state_vec, P_ref_vec, T_ref, last_action):
+        u_opt = self.solve_nmpc(state_vec, P_ref_vec, T_ref, last_action)
+        
+        last_I = last_action[0]
+        last_v_lye = last_action[1]
+        last_v_c = last_action[2]
         
         if u_opt is not None:
             # Extract first step
@@ -409,15 +427,11 @@ class MultiStackNMPCController(BaseController):
             v_lye_cmd = u0[self.n_stacks : 2*self.n_stacks]
             v_c_cmd = u0[2*self.n_stacks]
             
-            self.last_I = I_cmd
-            self.last_v_lye = v_lye_cmd
-            self.last_v_c = v_c_cmd
-            
             return I_cmd, v_lye_cmd, v_c_cmd
         else:
-            return self.last_I, self.last_v_lye, self.last_v_c
+            return last_I, last_v_lye, last_v_c
 
-    def get_all_actions_states(self, state_vec, P_ref_vec, T_ref=358.15):
+    def get_all_actions_states(self, state_vec, P_ref_vec, T_ref, last_action):
         """
         Returns all optimized actions AND predicted states in the horizon.
         Actions shape: (N, n_controls) [I_1..4, v_lye_1..4, v_c]
@@ -427,7 +441,12 @@ class MultiStackNMPCController(BaseController):
         We will pad them with the initial values (constant assumption for short horizon) or simple integration if possible.
         For now, we return constant values for non-thermal states to match the 13-dim requirement.
         """
-        u_opt = self.solve_nmpc(state_vec, P_ref_vec, T_ref)
+        u_opt = self.solve_nmpc(state_vec, P_ref_vec, T_ref, last_action)
+        
+        # Default last action if not provided (for fallback)
+        last_I = last_action[0]
+        last_v_lye = last_action[1]
+        last_v_c = last_action[2]
         
         if u_opt is not None:
             # Extract first step for internal state update (Side effect: update memory)
@@ -435,10 +454,6 @@ class MultiStackNMPCController(BaseController):
             I_cmd = u0[0 : self.n_stacks]
             v_lye_cmd = u0[self.n_stacks : 2*self.n_stacks]
             v_c_cmd = u0[2*self.n_stacks]
-            
-            self.last_I = I_cmd
-            self.last_v_lye = v_lye_cmd
-            self.last_v_c = v_c_cmd
             
             # 1. Actions
             # u_opt is flat (N * n_controls)
@@ -456,9 +471,9 @@ class MultiStackNMPCController(BaseController):
             p.extend(state_vec.flatten().tolist())
             p.append(self.T_ref)
             p.extend(P_ref_vec)
-            p.extend(self.last_I.tolist())
-            p.extend(self.last_v_lye.tolist())
-            p.append(self.last_v_c)
+            p.extend(last_I.tolist())
+            p.extend(last_v_lye.tolist())
+            p.append(last_v_c)
             
             # Evaluate state function for Thermal States (7 vars)
             # state_func output is flat (N * 7)
@@ -481,12 +496,9 @@ class MultiStackNMPCController(BaseController):
             return actions, pred_states
         else:
             # Return copies of last action repeated
-            last_action = np.concatenate([self.last_I, self.last_v_lye, [self.last_v_c]])
-            actions = np.tile(last_action, (self.horizon, 1))
+            last_action_flat = np.concatenate([last_I, last_v_lye, [last_v_c]])
+            actions = np.tile(last_action_flat, (self.horizon, 1))
             
-            # Return current state repeated (best guess if failed)
-            # state_vec is already 13-dim
-            current_state_flat = state_vec.flatten()
-            pred_states = np.tile(current_state_flat, (self.horizon, 1))
-            
+            # Repeat current state
+            pred_states = np.tile(state_vec.flatten(), (self.horizon, 1))
             return actions, pred_states

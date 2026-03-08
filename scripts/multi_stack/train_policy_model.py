@@ -238,15 +238,13 @@ class AWEDataset(Dataset):
 
     def _normalize_data(self):
         # Min-Max Normalization
+        # Condition: 33 (13 + 1 + N + 9)
         self.cond_min = self.cond_data.min(axis=0)
         self.cond_max = self.cond_data.max(axis=0)
-        
-        # Handle constant columns (max == min) to avoid div/0
         diff = self.cond_max - self.cond_min
         diff[diff < 1e-6] = 1.0 # Prevent division by zero
         
         # Action normalization using Physical Limits
-        # I_max = 7800.0 * 1.2 = 9360.0
         I_min, I_max = 0.0, 9360.0
         v_lye_min, v_lye_max = 0.0, 0.1
         v_c_min, v_c_max = 0.0, 1.0

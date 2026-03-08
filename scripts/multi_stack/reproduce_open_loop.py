@@ -79,7 +79,7 @@ def run_simulation():
     T_s_in = y_history[0, :]
     # Inline HTO calculation (Vectorized)
     n_gas_hist = y_history[12, :]
-    HTO = (n_gas_hist * sim.R * T_sep) / (sim.p_sys * sim.V_sep_gas) * 100.0
+    HTO = (n_gas_hist * sim.R * T_sep) / (sim.P_sys * sim.V_sep_gas) * 100.0
     
     # Inputs for plotting
     I_plot = np.zeros((4, len(t_eval)))

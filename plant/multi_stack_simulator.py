@@ -11,9 +11,9 @@ class MultiStackSimulator(BaseSimulator):
         self.I_rated = 7800.0
         self.N_cell = 368
         self.A_cell = 2.0
-        self.p_sys = 1.6e6  # 1.6 MPa
+        self.P_sys = 1.6e6  # 1.6 MPa
         # NOTE unsure
-        self.delta_P = 0.01 * self.p_sys
+        self.delta_P = 0.01 * self.P_sys
         
         # Electrochemical
         self.r1, self.r2, self.r3 = 3.202e-5, 8.970e-8, -4.193e-12
@@ -53,6 +53,7 @@ class MultiStackSimulator(BaseSimulator):
         self.epsilon_sep = 0.8 # Emissivity
         self.sigma_b = 5.67e-8 # Stefan-Boltzmann constant [W/m^2 K^4]
         
+        self.F = 96485.0
         
         # HTO
         self.V_an_lye = 2.5
@@ -102,7 +103,7 @@ class MultiStackSimulator(BaseSimulator):
         w_lye = 0.30        # 30 wt% KOH
         
         # S_H2_H2O = rho_H2O / (M_H2O * p_atm * H_H2)
-        S_H2_H2O = rho_H2O * self.p_sys / (M_H2O * p_atm * H_H2)
+        S_H2_H2O = rho_H2O * self.P_sys / (M_H2O * p_atm * H_H2)
         
         # S_H2_lye = S_H2_H2O / 10^(K_H2 * w_lye)
         return S_H2_H2O / (10**(K_H2 * w_lye))
@@ -117,7 +118,7 @@ class MultiStackSimulator(BaseSimulator):
         U_rev = 1.229
         
         # Ohmic
-        R_ohm = self.r1 + self.r2 * T_s_i + self.r3 * self.p_sys
+        R_ohm = self.r1 + self.r2 * T_s_i + self.r3 * self.P_sys
         V_ohm = R_ohm * I_i
         
         # Activation (T in Celsius)
@@ -256,14 +257,14 @@ class MultiStackSimulator(BaseSimulator):
         
         # 1. O2 Production Rate (Molar)
         # n_dot_O2 = (N_cell * I * eta_F) / (4 * F)
-        n_dot_O2_prod_i = self.N_cell * I_i * eta_F_i / (4 * 96485.0)
+        n_dot_O2_prod_i = self.N_cell * I_i * eta_F_i / (4 * self.F)
         
         # 2. H2 Impurity Inputs to Anode (n_dot_H2_im)
         # a) Inflow via Lye Recirculation
         n_dot_H2_lye_i = self.S_H2_lye * self.rho_lye * v_lye_i / 4.0
         
         # b) Diffusion across membrane (Fick's Law)
-        n_dot_H2_diff_i = self.A_cell * self.N_cell * self.D_eff * self.S_H2_lye * self.p_sys / self.delta
+        n_dot_H2_diff_i = self.A_cell * self.N_cell * self.D_eff * self.S_H2_lye * self.P_sys / self.delta
         
         # c) Convection due to pressure difference (Darcy's Law)
         n_dot_H2_conv_i = self.A_cell * self.N_cell * (self.K_eff / self.mu_lye) * self.S_H2_lye * self.rho_lye * (self.delta_P / self.delta)
@@ -294,7 +295,7 @@ class MultiStackSimulator(BaseSimulator):
         # n_dot_out = (n_H2_gas / n_total_gas) * n_dot_total_gas
         # n_total_gas approx P * V / (R * T)
         if sum_n_dot_O2 > 1e-9:
-            n_dot_H2_out = (self.R * T_sep * n_H2_sep_gas * sum_n_dot_O2) / (self.p_sys * self.V_sep_gas)
+            n_dot_H2_out = (self.R * T_sep * n_H2_sep_gas * sum_n_dot_O2) / (self.P_sys * self.V_sep_gas)
         else:
             n_dot_H2_out = 0.0
             
@@ -324,7 +325,7 @@ class MultiStackSimulator(BaseSimulator):
             
             # Calculate HTO init
             target_HTO_fraction = self.HTO_init / 100.0
-            n_gas = target_HTO_fraction * (self.p_sys * self.V_sep_gas) / (self.R * self.T_sep_init)
+            n_gas = target_HTO_fraction * (self.P_sys * self.V_sep_gas) / (self.R * self.T_sep_init)
             
             # Initialize concentrations (simplified)
             x0[7:11] = n_gas / 4

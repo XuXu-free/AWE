@@ -1,6 +1,7 @@
 
 import os
 import sys
+from typing import Any
 import numpy as np
 import pandas as pd
 from datetime import datetime
@@ -76,11 +77,9 @@ def run_warmup_phase(sim, ctrl, history, last_action, dt, T_ref=353.15):
             # Calculate Extra Metrics (using measurements)
             n_H2_sep_gas = measured_state[12]
             # T_sep is already Kelvin
-            n_gas_total = (sim.p_sys * sim.V_sep_gas) / (sim.R * T_sep)
-            hto_pct = (n_H2_sep_gas / n_gas_total) * 100 if n_gas_total > 1e-9 else 0.0
+            hto_pct = (n_H2_sep_gas * sim.R * T_sep) / (sim.P_sys * sim.V_sep_gas) * 100
             
-            F_const = 96485.0
-            h2_rate = np.sum(sim.N_cell * last_action[0] * eta / (2 * F_const))
+            h2_rate = np.sum(sim.N_cell * last_action[0] * eta / (2 * sim.F))
             
             # Store previous action before update
             prev_action = [np.copy(last_action[0]), np.copy(last_action[1]), last_action[2]]
@@ -88,7 +87,7 @@ def run_warmup_phase(sim, ctrl, history, last_action, dt, T_ref=353.15):
             # Control Update
             if i % ctrl_steps == 0:
                 I_cmd, v_lye_cmd, v_c_cmd = ctrl.get_action(
-                    measured_state, P_future, T_ref=T_ref
+                    measured_state, P_future, T_ref=T_ref, last_action=last_action
                 )
                 action_sim = np.concatenate([I_cmd, v_lye_cmd, [v_c_cmd]])
                 last_action = [I_cmd, v_lye_cmd, v_c_cmd]
@@ -130,6 +129,80 @@ def run_warmup_phase(sim, ctrl, history, last_action, dt, T_ref=353.15):
 
     print("Warm-up Complete. Starting Main Test...")
     return last_action
+
+def log_and_visualize(i, t, history, full_profile, profile_indices, P_real, T_s_in, T_s_vec, T_sep, T_c_out, n_H2_an_vec, n_liq, n_gas, T_ref, P_future, prev_action, last_action, U_cell, hto_pct, h2_rate, ctrl_steps, pbar, data_filename):
+    # Log (downsampled) - Every 10s (50 steps)
+    if i % 50 == 0:
+        history['t'].append(t)
+        history['P_ref'].append(full_profile[profile_indices[i]])
+        history['P_real'].append(P_real)
+        history['T_s_in'].append(T_s_in)
+        history['T_s_all'].append(T_s_vec)
+        history['T_sep'].append(T_sep)
+        history['T_c_out'].append(T_c_out)
+        history['n_H2_an_vec'].append(n_H2_an_vec)
+        history['n_liq'].append(n_liq)
+        history['n_gas'].append(n_gas)
+        history['T_ref'].append(T_ref)
+        history['P_ref_future'].append(P_future) # Note: P_future from last control step
+        history['I_prev'].append(prev_action[0])
+        history['v_lye_prev'].append(prev_action[1])
+        history['v_c_prev'].append(prev_action[2])
+        history['I_all'].append(last_action[0])
+        history['v_lye_all'].append(last_action[1])
+        history['v_c'].append(last_action[2])
+        history['U_cell_all'].append(U_cell)
+        history['HTO'].append(hto_pct)
+        history['H2_rate'].append(h2_rate)
+    
+    # Update progress bar (on control steps)
+    if i % ctrl_steps == 0:
+        P_ref_val = full_profile[profile_indices[i]]
+        pbar.set_postfix({
+            "t": f"{t:.0f}s",
+            "P_ref": f"{P_ref_val/1e6:.1f}MW",
+            "P_real": f"{P_real/1e6:.1f}MW",
+            "T_s": f"{np.mean(T_s_vec)-273.15:.1f}C"
+        })
+        pbar.update(1)
+    
+    # Periodic Plot Update (every 3600s)
+    if t > 0 and i % (3600 * 5) == 0: # Every hour
+        # Use project root relative path
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
+        output_dir = os.path.join(project_root, 'output', 'multi_stack', 'test')
+        
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        
+        # Save CSV snapshot
+        save_data_csv(history, output_dir, data_filename)
+        save_plot(history, output_dir, data_filename)
+
+def calculate_metrics(history, duration):
+    # Calculate RMSE
+    t_arr = np.array(history['t'])
+    P_ref_arr = np.array(history['P_ref'])
+    P_real_arr = np.array(history['P_real'])
+    T_s_all = np.array(history['T_s_all'])
+    if T_s_all.ndim > 1:
+        T_s_mean = np.mean(T_s_all, axis=1)
+    else:
+        T_s_mean = np.zeros_like(t_arr)
+    T_ref_arr = np.array(history['T_ref'])
+    
+    # Metrics
+    rmse_p = np.sqrt(np.mean((P_real_arr - P_ref_arr)**2)) / 1e6
+    rmse_t = np.sqrt(np.mean((T_s_mean - T_ref_arr)**2))
+    
+    print("-" * 50)
+    print(f"Performance Metrics (Duration: {duration}s)")
+    print(f"Power RMSE: {rmse_p:.3f} MW")
+    print(f"Temp RMSE:  {rmse_t:.3f} K")
+    print("-" * 50)
+    
+    print("Test Complete. Results saved.")
 
 def run_test(controller_type='nmpc', model_type='tcn'):
     # Setup - aligned with generate_dataset.py
@@ -189,7 +262,7 @@ def run_test(controller_type='nmpc', model_type='tcn'):
     }
     
     last_action = [
-        np.zeros(4), # I
+        np.ones(4)*2000, # I
         np.ones(4)*0.03, # v_lye
         0.0 # v_c
     ]
@@ -233,12 +306,10 @@ def run_test(controller_type='nmpc', model_type='tcn'):
             # Calculate Extra Metrics (using measurements)
             n_H2_sep_gas = measured_state[12]
             # T_sep is already Kelvin
-            n_gas_total = (sim.p_sys * sim.V_sep_gas) / (sim.R * T_sep)
-            hto_pct = (n_H2_sep_gas / n_gas_total) * 100 if n_gas_total > 1e-9 else 0.0
+            hto_pct = (n_H2_sep_gas * sim.R * T_sep) / (sim.P_sys * sim.V_sep_gas) * 100
             
             # H2 Production Rate (mol/s)
-            F_const = 96485.0
-            h2_rate = np.sum(sim.N_cell * last_action[0] * eta / (2 * F_const))
+            h2_rate = np.sum(sim.N_cell * last_action[0] * eta / (2 * sim.F))
             
             # Store previous action
             prev_action = [np.copy(last_action[0]), np.copy(last_action[1]), last_action[2]]
@@ -258,10 +329,10 @@ def run_test(controller_type='nmpc', model_type='tcn'):
                         P_future = np.concatenate([P_future, padding])
                 
                 # Ensure P_future is list or array
-                P_future = list(P_future)
+                P_future = list[Any](P_future)
                 
                 I_cmd, v_lye_cmd, v_c_cmd = ctrl.get_action(
-                    measured_state, P_future, T_ref=T_ref
+                    measured_state, P_future, T_ref, last_action
                 )
                 
                 # Pack action for simulator: [I1..4, v1..4, vc]
@@ -272,54 +343,8 @@ def run_test(controller_type='nmpc', model_type='tcn'):
                 
             sim.step(action_sim)
             
-            # Log (downsampled) - Every 10s (50 steps)
-            if i % 50 == 0:
-                history['t'].append(t)
-                history['P_ref'].append(full_profile[profile_indices[i]])
-                history['P_real'].append(P_real)
-                history['T_s_in'].append(T_s_in)
-                history['T_s_all'].append(T_s_vec)
-                history['T_sep'].append(T_sep)
-                history['T_c_out'].append(T_c_out)
-                history['n_H2_an_vec'].append(n_H2_an_vec)
-                history['n_liq'].append(n_liq)
-                history['n_gas'].append(n_gas)
-                history['T_ref'].append(T_ref)
-                history['P_ref_future'].append(P_future) # Note: P_future from last control step
-                history['I_prev'].append(prev_action[0])
-                history['v_lye_prev'].append(prev_action[1])
-                history['v_c_prev'].append(prev_action[2])
-                history['I_all'].append(last_action[0])
-                history['v_lye_all'].append(last_action[1])
-                history['v_c'].append(last_action[2])
-                history['U_cell_all'].append(U_cell)
-                history['HTO'].append(hto_pct)
-                history['H2_rate'].append(h2_rate)
-            
-            # Update progress bar (on control steps)
-            if i % ctrl_steps == 0:
-                P_ref_val = full_profile[profile_indices[i]]
-                pbar.set_postfix({
-                    "t": f"{t:.0f}s",
-                    "P_ref": f"{P_ref_val/1e6:.1f}MW",
-                    "P_real": f"{P_real/1e6:.1f}MW",
-                    "T_s": f"{np.mean(T_s_vec)-273.15:.1f}C"
-                })
-                pbar.update(1)
-            
-            # Periodic Plot Update (every 3600s)
-            if t > 0 and i % (3600 * 5) == 0: # Every hour
-                # Use project root relative path
-                script_dir = os.path.dirname(os.path.abspath(__file__))
-                project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
-                output_dir = os.path.join(project_root, 'output', 'multi_stack', 'test')
-                
-                if not os.path.exists(output_dir):
-                    os.makedirs(output_dir)
-                
-                # Save CSV snapshot
-                save_data_csv(history, output_dir, data_filename)
-                save_plot(history, output_dir, data_filename)
+            # Log and Visualize
+            log_and_visualize(i, t, history, full_profile, profile_indices, P_real, T_s_in, T_s_vec, T_sep, T_c_out, n_H2_an_vec, n_liq, n_gas, T_ref, P_future, prev_action, last_action, U_cell, hto_pct, h2_rate, ctrl_steps, pbar, data_filename)
             
     # Save final data
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -331,29 +356,7 @@ def run_test(controller_type='nmpc', model_type='tcn'):
         
     save_data_csv(history, output_dir, data_filename)
     save_plot(history, output_dir, data_filename)
-    
-    # Calculate RMSE
-    t_arr = np.array(history['t'])
-    P_ref_arr = np.array(history['P_ref'])
-    P_real_arr = np.array(history['P_real'])
-    T_s_all = np.array(history['T_s_all'])
-    if T_s_all.ndim > 1:
-        T_s_mean = np.mean(T_s_all, axis=1)
-    else:
-        T_s_mean = np.zeros_like(t_arr)
-    T_ref_arr = np.array(history['T_ref'])
-    
-    # Metrics
-    rmse_p = np.sqrt(np.mean((P_real_arr - P_ref_arr)**2)) / 1e6
-    rmse_t = np.sqrt(np.mean((T_s_mean - T_ref_arr)**2))
-    
-    print("-" * 50)
-    print(f"Performance Metrics (Duration: {duration}s)")
-    print(f"Power RMSE: {rmse_p:.3f} MW")
-    print(f"Temp RMSE:  {rmse_t:.3f} K")
-    print("-" * 50)
-    
-    print("Test Complete. Results saved.")
+    calculate_metrics(history, duration)
 
 def save_plot(history, output_dir, filename):
     t_arr = np.array(history['t'])
