@@ -7,6 +7,7 @@ from ..base_controller import BaseController
 from diffusion.models import DiffusionMLP, DiffusionTCN, FlowMatchingTCN, FlowMatchingMLP
 from diffusion.ddpm import DDPMScheduler
 from diffusion.flow_matching import FlowMatchingScheduler
+from diffusion.hardflow_scheduler import HardFlowScheduler
 try:
     from plant.multi_stack_simulator import MultiStackSimulator
 except ImportError:
@@ -81,12 +82,24 @@ class MultiStackModelController(BaseController):
                 obs_dim=self.obs_dim, 
                 horizon=horizon).to(self.device)
             self.scheduler = FlowMatchingScheduler(device=self.device)
+        elif model_type == 'flow_mlp_hardflow':
+            self.model = FlowMatchingMLP(
+                action_dim=self.action_dim,
+                obs_dim=self.obs_dim,
+                horizon=horizon).to(self.device)
+            self.scheduler = HardFlowScheduler(device=self.device)
         elif model_type == 'flow_tcn':
             self.model = FlowMatchingTCN(
                 action_dim=self.action_dim, 
                 obs_dim=self.obs_dim, 
                 horizon=horizon).to(self.device)
             self.scheduler = FlowMatchingScheduler(device=self.device)
+        elif model_type == 'flow_tcn_hardflow':
+            self.model = FlowMatchingTCN(
+                action_dim=self.action_dim,
+                obs_dim=self.obs_dim,
+                horizon=horizon).to(self.device)
+            self.scheduler = HardFlowScheduler(device=self.device)
         elif model_type == 'diffusion_tcn':
             self.model = DiffusionTCN(
                 output_dim=self.action_dim, 
@@ -239,11 +252,29 @@ class MultiStackModelController(BaseController):
         # Sample sequence: (Batch, Action_Dim, Horizon)
         # Using a small noise_scale to improve diversity/robustness
         noise_scale = 0.0
-        if isinstance(self.scheduler, FlowMatchingScheduler):
-             samples_norm = self.scheduler.sample(self.model, cond_norm_batch, (num_candidates, self.action_dim, self.horizon), noise_scale=noise_scale)
+        if isinstance(self.scheduler, DDPMScheduler):
+            samples_norm = self.scheduler.sample(self.model, cond_norm_batch, (num_candidates, self.action_dim, self.horizon))
+        elif isinstance(self.scheduler, FlowMatchingScheduler):
+            samples_norm = self.scheduler.sample(self.model, cond_norm_batch, (num_candidates, self.action_dim, self.horizon), noise_scale=noise_scale)
         else:
-             # DDPMScheduler
-             samples_norm = self.scheduler.sample(self.model, cond_norm_batch, (num_candidates, self.action_dim, self.horizon))
+            lb = torch.full((num_candidates, self.action_dim, self.horizon), -1.0, device=self.device)
+            ub = torch.full((num_candidates, self.action_dim, self.horizon), 1.0, device=self.device)
+            last_action_t = torch.FloatTensor(last_action_vec).to(self.device)
+            last_action_norm = 2 * (last_action_t - self.action_min) / self.action_diff - 1
+            last_action_norm_b = last_action_norm.view(1, -1).repeat(num_candidates, 1)
+            samples_norm = self.scheduler.sample(
+                self.model,
+                cond_norm_batch,
+                (num_candidates, self.action_dim, self.horizon),
+                steps=20,
+                num_iters=8,
+                lambda_oc=1.0,
+                bounds=(lb, ub),
+                smooth_ref=last_action_norm_b,
+                smooth_w=10.0,
+                step_size=0.3,
+                noise_scale=0.0
+            )
         
         # 4. Denormalize
         actions = self._denormalize_clamp_action(samples_norm)

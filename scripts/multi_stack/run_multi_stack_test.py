@@ -39,12 +39,12 @@ def load_december_profile():
     return df['P_ref'].values
 
 def run_warmup_phase(sim, ctrl, history, last_action, dt, output_dir, filename_prefix="warmup", T_ref=353.15):
-    """
+    """ 
     Run a warmup phase at constant power to stabilize temperatures.
     """
     warmup_duration = 14400 # seconds (4h)
     warmup_steps = int(warmup_duration / dt)
-    warmup_P_ref = 8.0e6 # 8MW constant
+    warmup_P_ref = 6.0e6 # 6MW constant
     
     print(f"Starting Warm-up Phase ({warmup_duration}s at {warmup_P_ref/1e6}MW)...")
     
@@ -503,7 +503,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run Multi-Stack Test')
     parser.add_argument('--controller', type=str, default='model', choices=['nmpc', 'model', 'model_dynamic'], help='Controller type')
     parser.add_argument('--model_type', type=str, default='flow_tcn', 
-                        choices=['diffusion_mlp', 'diffusion_tcn', 'flow_mlp', 'flow_tcn', 'mlp', 'tcn', 'flow_matching'], 
+                        choices=['diffusion_mlp', 'diffusion_tcn', 'flow_mlp', 'flow_tcn', 'flow_mlp_hardflow', 'flow_tcn_hardflow', 'mlp', 'tcn', 'flow_matching'], 
                         help='Model type (only for model controller)')
     args = parser.parse_args()
     

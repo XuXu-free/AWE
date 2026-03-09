@@ -21,19 +21,20 @@ class FlowMatchingScheduler:
         # 2. Sample x_0 (Noise) ~ N(0, 1)
         x_0 = torch.randn_like(x_1)
         
-        # 3. Simplified Conditional Flow Matching (CFM) with Optimal Transport:
-        # x_t = (1 - t) * x_0 + t * x_1
+        # 3. Conditional Flow Matching (CFM) with Optimal Transport and sigma_min:
+        # x_t = (1 - (1 - sigma_min) * t) * x_0 + t * x_1
         # Broadcasting t to match x shape
         if x_1.dim() == 3: # (B, C, L)
             t_b = t.view(batch_size, 1, 1)
         else: # (B, C)
             t_b = t.view(batch_size, 1)
             
-        x_t = (1 - t_b) * x_0 + t_b * x_1
+        term_noise = 1 - (1 - self.sigma_min) * t_b
+        x_t = term_noise * x_0 + t_b * x_1
         
         # 4. Target Velocity u_t
-        # dx_t/dt = x_1 - x_0
-        u_t = x_1 - x_0
+        # dx_t/dt = x_1 - (1 - sigma_min) * x_0
+        u_t = x_1 - (1 - self.sigma_min) * x_0
         
         # 5. Model Prediction v_theta
         # Model takes (x, t, cond)

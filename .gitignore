@@ -214,3 +214,6 @@ output/
 *nmpc_solver.c
 *nmpc_solver.dll
 *nmpc_solver.so
+
+.paper/
+.claude/
