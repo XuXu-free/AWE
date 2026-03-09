@@ -38,11 +38,11 @@ def load_december_profile():
     df = pd.read_csv(profile_path)
     return df['P_ref'].values
 
-def run_warmup_phase(sim, ctrl, history, last_action, dt, T_ref=353.15):
+def run_warmup_phase(sim, ctrl, history, last_action, dt, output_dir, filename_prefix="warmup", T_ref=353.15):
     """
     Run a warmup phase at constant power to stabilize temperatures.
     """
-    warmup_duration = 1200 # seconds (20 mins)
+    warmup_duration = 14400 # seconds (4h)
     warmup_steps = int(warmup_duration / dt)
     warmup_P_ref = 8.0e6 # 8MW constant
     
@@ -53,8 +53,13 @@ def run_warmup_phase(sim, ctrl, history, last_action, dt, T_ref=353.15):
     
     # Control interval steps
     ctrl_steps = int(ctrl.dt / dt)
+    total_ctrl_steps = warmup_steps // ctrl_steps
+    warmup_profile = np.array([warmup_P_ref], dtype=float)
+    warmup_profile_indices = np.zeros(warmup_steps, dtype=int)
+    plot_every_steps = max(1, int(3600 / dt))
+    warmup_data_filename = f"{filename_prefix}.csv"
     
-    with tqdm(total=warmup_steps, desc="Warmup", unit="step") as pbar:
+    with tqdm(total=total_ctrl_steps, desc="Warmup", unit="ctrl_step") as pbar:
         for i in range(warmup_steps):
             t_warmup = -warmup_duration + i * dt
             
@@ -95,42 +100,38 @@ def run_warmup_phase(sim, ctrl, history, last_action, dt, T_ref=353.15):
                 action_sim = np.concatenate([last_action[0], last_action[1], [last_action[2]]])
                 
             sim.step(action_sim)
-            
-            # Log Warmup (downsample logging to avoid huge files? or keep all for now)
-            # Log every 1s (approx 5 steps) to save space if dt=0.2
-            if i % 5 == 0:
-                history['t'].append(t_warmup)
-                history['P_ref'].append(warmup_P_ref)
-                history['P_real'].append(P_real)
-                history['T_s_in'].append(T_s_in)
-                history['T_s_all'].append(T_s_vec)
-                history['T_sep'].append(T_sep)
-                history['T_c_out'].append(T_c_out)
-                history['n_H2_an_vec'].append(n_H2_an_vec)
-                history['n_liq'].append(n_liq)
-                history['n_gas'].append(n_gas)
-                history['T_ref'].append(T_ref)
-                history['P_ref_future'].append(P_future)
-                history['I_prev'].append(prev_action[0])
-                history['v_lye_prev'].append(prev_action[1])
-                history['v_c_prev'].append(prev_action[2])
-                history['I_all'].append(last_action[0])
-                history['v_lye_all'].append(last_action[1])
-                history['v_c'].append(last_action[2])
-                history['U_cell_all'].append(U_cell)
-                history['HTO'].append(hto_pct)
-                history['H2_rate'].append(h2_rate)
-            
-            if i % 100 == 0:
-                pbar.set_postfix({
-                    "T_s_mean": f"{np.mean(T_s_vec):.1f}K"
-                })
-            pbar.update(1)
+            log_and_visualize(
+                i=i,
+                t=t_warmup,
+                history=history,
+                full_profile=warmup_profile,
+                profile_indices=warmup_profile_indices,
+                P_real=P_real,
+                T_s_in=T_s_in,
+                T_s_vec=T_s_vec,
+                T_sep=T_sep,
+                T_c_out=T_c_out,
+                n_H2_an_vec=n_H2_an_vec,
+                n_liq=n_liq,
+                n_gas=n_gas,
+                T_ref=T_ref,
+                P_future=P_future,
+                prev_action=prev_action,
+                last_action=last_action,
+                U_cell=U_cell,
+                hto_pct=hto_pct,
+                h2_rate=h2_rate,
+                ctrl_steps=ctrl_steps,
+                pbar=pbar,
+                data_filename=warmup_data_filename,
+                output_dir=output_dir,
+                plot_every_steps=plot_every_steps,
+            )
 
     print("Warm-up Complete. Starting Main Test...")
     return last_action
 
-def log_and_visualize(i, t, history, full_profile, profile_indices, P_real, T_s_in, T_s_vec, T_sep, T_c_out, n_H2_an_vec, n_liq, n_gas, T_ref, P_future, prev_action, last_action, U_cell, hto_pct, h2_rate, ctrl_steps, pbar, data_filename):
+def log_and_visualize(i, t, history, full_profile, profile_indices, P_real, T_s_in, T_s_vec, T_sep, T_c_out, n_H2_an_vec, n_liq, n_gas, T_ref, P_future, prev_action, last_action, U_cell, hto_pct, h2_rate, ctrl_steps, pbar, data_filename, output_dir, plot_every_steps):
     # Log (downsampled) - Every 10s (50 steps)
     if i % 50 == 0:
         history['t'].append(t)
@@ -167,16 +168,9 @@ def log_and_visualize(i, t, history, full_profile, profile_indices, P_real, T_s_
         pbar.update(1)
     
     # Periodic Plot Update (every 3600s)
-    if t > 0 and i % (3600 * 5) == 0: # Every hour
-        # Use project root relative path
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
-        output_dir = os.path.join(project_root, 'output', 'multi_stack', 'test')
-        
+    if plot_every_steps is not None and i > 0 and i % plot_every_steps == 0:
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
-        
-        # Save CSV snapshot
         save_data_csv(history, output_dir, data_filename)
         save_plot(history, output_dir, data_filename)
 
@@ -282,13 +276,22 @@ def run_test(controller_type='nmpc', model_type='tcn'):
         0.0 # v_c
     ]
     
+    # Generate timestamped filename for data logging
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    data_filename = f"{controller_type}_data_{timestamp}.csv"
+    output_dir = os.path.join(project_root, 'output', 'multi_stack', 'test')
+    plot_every_steps = max(1, int(3600 / sim_dt))
+    
     # --- Warm-up Phase ---
-    last_action = run_warmup_phase(sim, ctrl, history, last_action, sim_dt, T_ref=T_ref)
+    # Pass output_dir and filename_prefix to enable periodic plotting
+    last_action = run_warmup_phase(
+        sim, ctrl, history, last_action, sim_dt, 
+        output_dir=output_dir, 
+        filename_prefix=f"warmup_{timestamp}", 
+        T_ref=T_ref
+    )
 
     print(f"Starting Multi-Stack {controller_type.upper()} Test...")
-    
-    # Generate timestamped filename for data logging
-    data_filename = f"{controller_type}_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     
     # Loop
     ctrl_steps = int(dt_ctrl / sim_dt)
@@ -359,7 +362,7 @@ def run_test(controller_type='nmpc', model_type='tcn'):
             sim.step(action_sim)
             
             # Log and Visualize
-            log_and_visualize(i, t, history, full_profile, profile_indices, P_real, T_s_in, T_s_vec, T_sep, T_c_out, n_H2_an_vec, n_liq, n_gas, T_ref, P_future, prev_action, last_action, U_cell, hto_pct, h2_rate, ctrl_steps, pbar, data_filename)
+            log_and_visualize(i, t, history, full_profile, profile_indices, P_real, T_s_in, T_s_vec, T_sep, T_c_out, n_H2_an_vec, n_liq, n_gas, T_ref, P_future, prev_action, last_action, U_cell, hto_pct, h2_rate, ctrl_steps, pbar, data_filename, output_dir, plot_every_steps)
             
     # Save final data
     script_dir = os.path.dirname(os.path.abspath(__file__))

@@ -90,13 +90,14 @@ class MultiStackModelDynamicController(MultiStackModelController):
         # Scheduler for Dynamics (DDPM)
         self.dyn_scheduler = DDPMScheduler(device=self.device)
 
-    def get_action(self, state, P_ref, T_ref):
+    def get_action(self, state, P_ref, T_ref, last_action):
         """
         Override get_action to use learned dynamics model for evaluation.
         """
+        last_action_vec = self._as_last_action_vec(last_action)
         # 1. Prepare Condition for Policy Model
         # (Same as base class)
-        cond_norm = self._prepare_condition(state, P_ref, T_ref)
+        cond_norm = self._prepare_condition(state, P_ref, T_ref, last_action_vec)
         
         # 2. Sample Candidates from Policy Model
         num_candidates = 64
@@ -202,9 +203,8 @@ class MultiStackModelDynamicController(MultiStackModelController):
         T_ref_tensor = torch.tensor(T_ref, device=self.device)
         
         # Previous Action for Smoothness
-        # self.last_action is numpy (9,)
         # Need to broadcast to (Batch, 9) for first step diff
-        u_prev_tensor = torch.FloatTensor(self.last_action[:9]).to(self.device).unsqueeze(0) # (1, 9)
+        u_prev_tensor = torch.FloatTensor(last_action_vec).to(self.device).unsqueeze(0) # (1, 9)
         
         # Extract Control Components from Candidates
         # ctrl_actions: (Batch, 9, H)
@@ -266,9 +266,6 @@ class MultiStackModelDynamicController(MultiStackModelController):
         
         # First step
         action_0 = best_action_seq[:, 0].cpu().numpy() # (9,)
-        
-        # Update last action
-        self.last_action = action_0
         
         I_cmd = action_0[0:4]
         v_lye_cmd = action_0[4:8]

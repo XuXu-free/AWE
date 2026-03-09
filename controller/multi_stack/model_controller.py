@@ -41,12 +41,6 @@ class MultiStackModelController(BaseController):
         # Load Model
         self._load_model(model_type, model_path, horizon)
         
-        # Internal state for previous action
-        # I(4), v_lye(4), v_c(1)
-        self.last_action = np.zeros(9)
-        # Initialize with nominal values if needed (e.g. v_lye=0.03)
-        self.last_action[4:8] = 0.03
-        
         # Constraints (from NMPC)
         self.I_min = 0.0
         self.I_max = 7800.0
@@ -54,6 +48,20 @@ class MultiStackModelController(BaseController):
         self.v_lye_max = 0.1
         self.v_c_min = 0.0
         self.v_c_max = 1.0
+
+    def _as_last_action_vec(self, last_action):
+        if last_action is None:
+            raise ValueError("last_action must be provided as [I_prev, v_lye_prev, v_c_prev] or a 9D vector.")
+        if isinstance(last_action, (list, tuple)) and len(last_action) == 3:
+            I_prev = np.asarray(last_action[0], dtype=float).reshape(-1)
+            v_lye_prev = np.asarray(last_action[1], dtype=float).reshape(-1)
+            v_c_prev = float(last_action[2])
+            last_action_vec = np.concatenate([I_prev, v_lye_prev, [v_c_prev]])
+        else:
+            last_action_vec = np.asarray(last_action, dtype=float).reshape(-1)
+        if last_action_vec.shape[0] != 9:
+            raise ValueError(f"last_action must have 9 elements, got {last_action_vec.shape[0]}")
+        return last_action_vec
 
     def _load_model(self, model_type, model_path, horizon):
         # Default model path based on type if not provided
@@ -139,7 +147,7 @@ class MultiStackModelController(BaseController):
         print(f"Detected Action Dim: {self.action_dim}")
         print(f"Detected Obs Dim: {self.obs_dim}")
 
-    def _prepare_condition(self, state, P_ref, T_ref):
+    def _prepare_condition(self, state, P_ref, T_ref, last_action_vec):
         # 1. Construct Condition Vector
         cond = np.zeros(self.obs_dim)
         
@@ -188,7 +196,7 @@ class MultiStackModelController(BaseController):
             cond[14 + len(P_ref_arr) : 14 + self.horizon] = P_ref_arr[-1]
             
         # Feature 14+N..: Previous Action
-        cond[14 + self.horizon : 14 + self.horizon + 9] = self.last_action
+        cond[14 + self.horizon : 14 + self.horizon + 9] = last_action_vec
         
         # 2. Normalize
         cond_tensor = torch.FloatTensor(cond).to(self.device).unsqueeze(0) # Batch size 1
@@ -214,14 +222,14 @@ class MultiStackModelController(BaseController):
         
         return actions
 
-    def get_action(self, state, P_ref, T_ref):
+    def get_action(self, state, P_ref, T_ref, last_action):
         """
         state: [T_s_in, T_s1...4, T_sep, T_c_out, n_H2_an1...4, n_liq, n_gas] (13 elements)
         P_ref: List or array of future power references (length N or more)
         T_ref: Scalar target temperature
         """
-        
-        cond_norm = self._prepare_condition(state, P_ref, T_ref)
+        last_action_vec = self._as_last_action_vec(last_action)
+        cond_norm = self._prepare_condition(state, P_ref, T_ref, last_action_vec)
         
         # 3. Sample 16 candidates
         num_candidates = 128
@@ -261,8 +269,7 @@ class MultiStackModelController(BaseController):
             self.sim_rollout.reset(initial_state=state)
             
             # Previous actions for smoothness cost
-            # Initial previous action is self.last_action
-            u_prev = self.last_action.copy()
+            u_prev = last_action_vec.copy()
             I_prev = u_prev[0:4]
             v_lye_prev = u_prev[4:8]
             v_c_prev = u_prev[8]
@@ -320,9 +327,6 @@ class MultiStackModelController(BaseController):
         # Extract first step
         action_0 = best_action_seq[:, 0]
         
-        # Update last action
-        self.last_action = action_0
-        
         # Unpack
         I_cmd = action_0[0:4]
         v_lye_cmd = action_0[4:8]
@@ -330,13 +334,14 @@ class MultiStackModelController(BaseController):
         
         return I_cmd, v_lye_cmd, v_c_cmd
 
-    def get_all_actions(self, state, P_ref, T_ref=358.15):
+    def get_all_actions(self, state, P_ref, T_ref=358.15, last_action=None):
         """
         Returns all generated actions in the horizon.
         Output shape: (N, n_controls)
         n_controls = 9 [I_1..4, v_lye_1..4, v_c]
         """
-        cond_norm = self._prepare_condition(state, P_ref, T_ref)
+        last_action_vec = self._as_last_action_vec(last_action)
+        cond_norm = self._prepare_condition(state, P_ref, T_ref, last_action_vec)
         
         # Sample sequence
         samples_norm = self.scheduler.sample(self.model, cond_norm, (1, self.action_dim, self.horizon))
@@ -346,8 +351,4 @@ class MultiStackModelController(BaseController):
         
         # Shape: (1, 9, Horizon) -> (Horizon, 9)
         action_seq = action.squeeze(0).permute(1, 0).cpu().numpy()
-        
-        # Update last action (with first step)
-        self.last_action = action_seq[0]
-        
         return action_seq
