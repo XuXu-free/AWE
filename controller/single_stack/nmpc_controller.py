@@ -4,10 +4,10 @@ import os
 import subprocess
 
 class SingleStackNMPCController:
-    def __init__(self, dt=60.0, N_p=10, dt_sub=0.2):
+    def __init__(self, dt=60.0, horizon=5, sim_dt=0.2):
         self.dt = dt
-        self.dt_sub = dt_sub
-        self.N_p = N_p
+        self.sim_dt = sim_dt
+        self.horizon = horizon
         
         # --- System Parameters (Matched to SingleStackSimulator) ---
         self.n_stacks = 1
@@ -46,6 +46,10 @@ class SingleStackNMPCController:
         self.c_lye = 3200.0
         self.rho_lye = 1280.0
         
+        self.R = 8.314
+        self.V_sep = 10.288
+        self.V_sep_gas = 0.6 * self.V_sep
+        
         # Constraints
         self.T_min = 293.15
         self.T_max = 363.15
@@ -61,6 +65,9 @@ class SingleStackNMPCController:
         self.U_cell_min = 0.0
         self.U_cell_max = 2.2    # Updated to 2.2 V
         
+        self.HTO_pct_max = 2.0
+        self.HTO_pct_min = 0.0
+        
         # Targets
         self.T_ref = 358.15 
         
@@ -74,14 +81,10 @@ class SingleStackNMPCController:
         
         self._setup_solver()
         
-        # Internal State Memory
-        self.last_I = 0.0
-        self.last_v_lye = 0.03
-        self.last_v_c = 0.0
         self.prev_sol_x = None
 
-    def _dynamics_step(self, T_s_in_k, T_s_k, T_sep_k, T_c_out_k, I_k, v_lye_k, v_c_k):
-        n_sub = int(self.dt / self.dt_sub) if self.dt_sub > 0 else 1
+    def _dynamics_step(self, T_s_in_k, T_s_k, T_sep_k, T_c_out_k, I_k, v_lye_k, v_c_k, n_gas_k):
+        n_sub = int(self.dt / self.sim_dt) if self.sim_dt > 0 else 1
         n_sub = max(1, n_sub)
         dt_sub = self.dt / n_sub
 
@@ -126,18 +129,21 @@ class SingleStackNMPCController:
             dT_c_out_dt = (self.c_cw * self.rho_cw * v_c_k * (self.T_cw_in - T_c_out_sub) + Q_hx) / self.C_c
             T_c_out_sub = T_c_out_sub + dT_c_out_dt * dt_sub
 
-        return T_s_in_sub, T_s_sub, T_sep_sub, T_c_out_sub, Power_k, V_cell
+        # Calculate HTO %
+        hto_pct = (n_gas_k * self.R * T_sep_sub) / (self.P_sys * self.V_sep_gas) * 100
+
+        return T_s_in_sub, T_s_sub, T_sep_sub, T_c_out_sub, Power_k, V_cell, hto_pct
 
     def _setup_solver(self):
         # Decision Variables Structure:
         # At each step k: [I, v_lye, v_c] -> 3 variables
         self.n_controls = 3
-        self.U = ca.MX.sym('U', self.n_controls * self.N_p)
+        self.U = ca.MX.sym('U', self.n_controls * self.horizon)
         
         # Parameters: 
         # [T_s_in, T_s, T_sep, T_c_out, n_H2_an, n_liq, n_gas, T_ref, P_ref(N), I_prev, v_lye_prev, v_c_prev]
         # 7 + 1 + N + 3 = 11 + N parameters
-        self.n_params = 7 + 1 + self.N_p + 3
+        self.n_params = 7 + 1 + self.horizon + 3
         self.P = ca.MX.sym('P', self.n_params)
         
         # Unpack Initial State
@@ -153,11 +159,11 @@ class SingleStackNMPCController:
         n_gas = self.P[p_idx]; p_idx += 1
         
         T_ref_val = self.P[p_idx]; p_idx += 1
-        P_ref = self.P[p_idx : p_idx+self.N_p]; p_idx += self.N_p
+        P_ref = self.P[p_idx : p_idx+self.horizon]; p_idx += self.horizon
         
-        I_prev = self.P[p_idx]; p_idx += 1
-        v_lye_prev = self.P[p_idx]; p_idx += 1
-        v_c_prev = self.P[p_idx]; p_idx += 1
+        I_0 = self.P[p_idx]; p_idx += 1
+        v_lye_0 = self.P[p_idx]; p_idx += 1
+        v_c_0 = self.P[p_idx]; p_idx += 1
         
         # Convert to Celsius for Internal Model
         T_s_in_k = T_s_in_K
@@ -171,15 +177,15 @@ class SingleStackNMPCController:
         ubg = []
         
         # Loop over Horizon
-        for k in range(self.N_p):
+        for k in range(self.horizon):
             # Extract controls for step k
             uk = self.U[k*self.n_controls : (k+1)*self.n_controls]
             I_k = uk[0]
             v_lye_k = uk[1]
             v_c_k = uk[2]
             
-            T_s_in_k, T_s_k, T_sep_k, T_c_out_k, Power_k, V_cell = self._dynamics_step(
-                T_s_in_k, T_s_k, T_sep_k, T_c_out_k, I_k, v_lye_k, v_c_k
+            T_s_in_k, T_s_k, T_sep_k, T_c_out_k, Power_k, V_cell, hto_pct = self._dynamics_step(
+                T_s_in_k, T_s_k, T_sep_k, T_c_out_k, I_k, v_lye_k, v_c_k, n_gas
             )
             
             # --- Objective ---
@@ -191,13 +197,13 @@ class SingleStackNMPCController:
             
             # 3. Smoothness
             if k == 0:
-                dI = I_k - I_prev
+                dI = I_k - I_0
             else:
                 uk_prev = self.U[(k-1)*self.n_controls : k*self.n_controls]
                 dI = I_k - uk_prev[0]
             
-            dv_lye = v_lye_k - v_lye_prev
-            dv_c = v_c_k - v_c_prev
+            dv_lye = v_lye_k - v_lye_0
+            dv_c = v_c_k - v_c_0
             
             obj += self.lambda_I * dI**2
             obj += self.lambda_lye * dv_lye**2
@@ -219,10 +225,15 @@ class SingleStackNMPCController:
             lbg.append(self.U_cell_min)
             ubg.append(self.U_cell_max)
             
+            # HTO Production Rate
+            g.append(hto_pct)
+            lbg.append(self.HTO_pct_min)
+            ubg.append(self.HTO_pct_max)
+            
         # Input Bounds
         lbx = []
         ubx = []
-        for k in range(self.N_p):
+        for k in range(self.horizon):
             lbx.extend([self.I_min, self.v_lye_min, self.v_c_min])
             ubx.extend([self.I_max, self.v_lye_max, self.v_c_max])
             
@@ -245,24 +256,31 @@ class SingleStackNMPCController:
         
         if os.path.exists(dll_file):
             # print(f"Loading compiled solver from {dll_file}")
-            self.solver = ca.nlpsol('solver', 'ipopt', dll_file, opts)
+            self.solver = ca.nlpsol('nmpc_solver', 'ipopt', dll_file, opts)
         else:
             print("Compiling NMPC solver...")
             # Create JIT solver to generate code
-            solver = ca.nlpsol('solver', 'ipopt', nlp, opts)
-            solver.generate_dependencies(c_file)
-            print(f"C code generated to {c_file}")
+            solver = ca.nlpsol('nmpc_solver', 'ipopt', nlp, opts)
             
             try:
-                if os.name == 'posix':
-                    cmd = f"gcc -fPIC -shared -O0 {c_file} -o {dll_file}"
+                # Change to output directory to avoid path issues in generate_dependencies name check
+                cwd = os.getcwd()
+                os.chdir(output_dir)
+                try:
+                    solver.generate_dependencies('nmpc_solver.c')
+                    print(f"C code generated to {c_file}")
+                    
+                    if os.name == 'posix':
+                        cmd = "gcc -fPIC -shared -O0 nmpc_solver.c -o nmpc_solver.dll"
+                    else:
+                        cmd = "gcc -shared -O0 nmpc_solver.c -o nmpc_solver.dll"
+                        
                     subprocess.check_call(cmd.split())
-                else:
-                    cmd = f"gcc -shared -O0 {c_file} -o {dll_file}"
-                    subprocess.check_call(cmd.split())
+                    print(f"Solver compiled to {dll_file}")
+                finally:
+                    os.chdir(cwd)
                 
-                print(f"Solver compiled to {dll_file}")
-                self.solver = ca.nlpsol('solver', 'ipopt', dll_file, opts)
+                self.solver = ca.nlpsol('nmpc_solver', 'ipopt', dll_file, opts)
             except Exception as e:
                 print(f"Compilation failed: {e}. Using JIT solver.")
                 self.solver = solver
@@ -274,55 +292,65 @@ class SingleStackNMPCController:
         T_s_K = self.P[p_idx]; p_idx += 1
         T_sep_K = self.P[p_idx]; p_idx += 1
         T_c_out_K = self.P[p_idx]; p_idx += 1
+        
+        # Skip HTO states for prediction initialization loop (we only need thermal states for T_s_in_k etc.)
+        # But we DO need n_gas for dynamics_step
+        n_H2_an_dummy = self.P[p_idx]; p_idx += 1
+        n_liq_dummy = self.P[p_idx]; p_idx += 1
+        n_gas_val = self.P[p_idx]; p_idx += 1
 
         T_s_in_k = T_s_in_K
         T_s_k = T_s_K
         T_sep_k = T_sep_K
         T_c_out_k = T_c_out_K
 
-        for k in range(self.N_p):
+        for k in range(self.horizon):
             uk = self.U[k*self.n_controls : (k+1)*self.n_controls]
             I_k = uk[0]
             v_lye_k = uk[1]
             v_c_k = uk[2]
 
-            T_s_in_k, T_s_k, T_sep_k, T_c_out_k, _, _ = self._dynamics_step(
-                T_s_in_k, T_s_k, T_sep_k, T_c_out_k, I_k, v_lye_k, v_c_k
+            T_s_in_k, T_s_k, T_sep_k, T_c_out_k, _, _, _ = self._dynamics_step(
+                T_s_in_k, T_s_k, T_sep_k, T_c_out_k, I_k, v_lye_k, v_c_k, n_gas_val
             )
             pred_states.append(ca.vertcat(T_s_in_k, T_s_k, T_sep_k, T_c_out_k))
 
         self.state_func = ca.Function('state_func', [self.U, self.P], [ca.vertcat(*pred_states)])
 
-    def solve_nmpc(self, state_vec, P_ref_vec, T_ref):
+    def solve_nmpc(self, state_vec, P_ref_vec, T_ref, last_action):
         self.T_ref = T_ref
 
         state_vec = np.asarray(state_vec).flatten()
 
+        last_I = last_action[0]
+        last_v_lye = last_action[1]
+        last_v_c = last_action[2]
+
         if np.isscalar(P_ref_vec):
-            P_ref_vec = [P_ref_vec] * self.N_p
-        elif len(P_ref_vec) != self.N_p:
+            P_ref_vec = [P_ref_vec] * self.horizon
+        elif len(P_ref_vec) != self.horizon:
             pass
 
         P_ref_0 = P_ref_vec[0]
 
         x0 = []
         if getattr(self, 'prev_sol_x', None) is not None:
-            u_prev = self.prev_sol_x.reshape(self.N_p, self.n_controls)
+            u_prev = self.prev_sol_x.reshape(self.horizon, self.n_controls)
             u_guess = np.vstack([u_prev[1:], u_prev[-1:]])
             x0 = u_guess.flatten().tolist()
         else:
             I_est = P_ref_0 / (2.0 * self.n_cells)
             I_est = max(self.I_min, min(I_est, self.I_max))
-            for _ in range(self.N_p):
-                x0.extend([I_est, self.last_v_lye, self.last_v_c])
+            for _ in range(self.horizon):
+                x0.extend([I_est, last_v_lye, last_v_c])
 
         p = []
         p.extend(state_vec.tolist())
         p.append(self.T_ref)
         p.extend(P_ref_vec)
-        p.append(self.last_I)
-        p.append(self.last_v_lye)
-        p.append(self.last_v_c)
+        p.append(last_I)
+        p.append(last_v_lye)
+        p.append(last_v_c)
 
         try:
             sol = self.solver(x0=x0, lbx=self.lbx, ubx=self.ubx, lbg=self.lbg, ubg=self.ubg, p=p)
@@ -333,27 +361,26 @@ class SingleStackNMPCController:
             print(f"Single Stack NMPC Failed: {e}")
             return None
 
-    def get_action(self, state_vec, P_ref_vec, T_ref=358.15):
-        u_opt = self.solve_nmpc(state_vec, P_ref_vec, T_ref)
+    def get_action(self, state_vec, P_ref_vec, T_ref, last_action):
+        u_opt = self.solve_nmpc(state_vec, P_ref_vec, T_ref, last_action)
 
         if u_opt is not None:
             u0 = u_opt[0 : self.n_controls]
             I_cmd = u0[0]
             v_lye_cmd = u0[1]
             v_c_cmd = u0[2]
-
-            self.last_I = I_cmd
-            self.last_v_lye = v_lye_cmd
-            self.last_v_c = v_c_cmd
 
             return I_cmd, v_lye_cmd, v_c_cmd
+        
+        last_I = last_action[0]
+        last_v_lye = last_action[1]
+        last_v_c = last_action[2]
+        return last_I, last_v_lye, last_v_c
 
-        return self.last_I, self.last_v_lye, self.last_v_c
 
-
-    def get_all_actions_states(self, state_vec, P_ref_vec, T_ref=358.15):
+    def get_all_actions_states(self, state_vec, P_ref_vec, T_ref, last_action):
         state_vec = np.asarray(state_vec).flatten()
-        u_opt = self.solve_nmpc(state_vec, P_ref_vec, T_ref)
+        u_opt = self.solve_nmpc(state_vec, P_ref_vec, T_ref, last_action)
 
         if u_opt is not None:
             u0 = u_opt[0 : self.n_controls]
@@ -361,31 +388,41 @@ class SingleStackNMPCController:
             v_lye_cmd = u0[1]
             v_c_cmd = u0[2]
 
-            self.last_I = I_cmd
-            self.last_v_lye = v_lye_cmd
-            self.last_v_c = v_c_cmd
-
-            actions = u_opt.reshape(self.N_p, self.n_controls)
+            actions = u_opt.reshape(self.horizon, self.n_controls)
 
             if np.isscalar(P_ref_vec):
-                P_ref_vec = [P_ref_vec] * self.N_p
-            elif len(P_ref_vec) != self.N_p:
+                P_ref_vec = [P_ref_vec] * self.horizon
+            elif len(P_ref_vec) != self.horizon:
                 pass
+
+            last_I = last_action[0]
+            last_v_lye = last_action[1]
+            last_v_c = last_action[2]
 
             p = []
             p.extend(state_vec.tolist())
             p.append(self.T_ref)
             p.extend(P_ref_vec)
-            p.append(self.last_I)
-            p.append(self.last_v_lye)
-            p.append(self.last_v_c)
+            p.append(last_I)
+            p.append(last_v_lye)
+            p.append(last_v_c)
 
-            pred_states_vec = self.state_func(u_opt, p).full().flatten()
-            pred_states = pred_states_vec.reshape(self.N_p, 4)
+            # Evaluate state function
+            # Output is flat (N * 4) [T_s_in, T_s, T_sep, T_c_out]
+            pred_thermal_vec = self.state_func(u_opt, p).full().flatten()
+            pred_thermal = pred_thermal_vec.reshape(self.horizon, 4)
+
+            # Construct Full 7-dim State
+            # Non-thermal states from initial condition:
+            # n_H2_an, n_liq, n_gas -> indices 4, 5, 6 in state_vec
+            non_thermal_initial = state_vec[4:7]
+
+            pred_non_thermal = np.tile(non_thermal_initial, (self.horizon, 1))
+            
+            # Concatenate: [Thermal(4), Non-Thermal(3)] -> (N, 7)
+            pred_states = np.hstack([pred_thermal, pred_non_thermal])
 
             return actions, pred_states
 
-        last_action = np.array([self.last_I, self.last_v_lye, self.last_v_c])
-        actions = np.tile(last_action, (self.N_p, 1))
-        pred_states = np.tile(state_vec[0:4], (self.N_p, 1))
-        return actions, pred_states
+        else:
+            return None, None

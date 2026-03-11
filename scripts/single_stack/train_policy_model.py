@@ -20,90 +20,74 @@ class SingleStackDataset(Dataset):
     def __init__(self, csv_file, horizon=5, normalize=True):
         self.horizon = horizon
         
-        # Load CSV using pandas for easier handling
         df = pd.read_csv(csv_file)
         
-        # --- Preprocessing for Previous Actions ---
-        # CSV has 'v_c_prev', but might miss 'I_prev' and 'v_lye_prev'
-        # We construct them by shifting current actions
         if 'I_prev' not in df.columns:
             df['I_prev'] = df['I'].shift(1).fillna(0.0)
         if 'v_lye_prev' not in df.columns:
             df['v_lye_prev'] = df['v_lye'].shift(1).fillna(df['v_lye'].iloc[0] if len(df) > 0 else 0.0)
-        if 'v_c_prev' not in df.columns: # Should exist, but just in case
+        if 'v_c_prev' not in df.columns:
             df['v_c_prev'] = df['v_c'].shift(1).fillna(0.0)
             
         self.data = df
         n_samples = len(df)
         
-        # --- Construct Features ---
+        self.col_map = {c: i for i, c in enumerate(df.columns)}
+        def get_col(name):
+            return df[name].values
         
-        # Condition Vector Structure:
-        # 1. System State (6): T_s_in, T_s, T_sep, T_c_out, n_liq, n_gas
-        # 2. Reference (1 + N): T_ref, P_ref_future_0...N-1
-        # 3. Prev Actions (3): I_prev, v_lye_prev, v_c_prev
-        
-        self.cond_dim = 6 + 1 + self.horizon + 3
-        self.cond_data = np.zeros((n_samples, self.cond_dim))
-        
-        # 1. System State
-        self.cond_data[:, 0] = df['T_s_in'].values
-        self.cond_data[:, 1] = df['T_s'].values
-        self.cond_data[:, 2] = df['T_sep'].values
-        self.cond_data[:, 3] = df['T_c_out'].values
-        self.cond_data[:, 4] = df['n_liq'].values
-        self.cond_data[:, 5] = df['n_gas'].values
-        
-        # 2. Reference
-        self.cond_data[:, 6] = df['T_ref'].values
-        
-        # P_ref_future
-        for k in range(self.horizon):
-            col_name = f'P_ref_future_{k}'
-            if col_name in df.columns:
-                self.cond_data[:, 7 + k] = df[col_name].values
-            else:
-                # Fallback if specific future column missing (though generate_dataset should produce them)
-                # Use P_ref and shift
-                print(f"Warning: {col_name} missing, using shifted P_ref")
-                self.cond_data[:, 7 + k] = df['P_ref'].shift(-k).ffill().values
-
-        # 3. Prev Actions
-        base_idx = 7 + self.horizon
-        self.cond_data[:, base_idx] = df['I_prev'].values
-        self.cond_data[:, base_idx + 1] = df['v_lye_prev'].values
-        self.cond_data[:, base_idx + 2] = df['v_c_prev'].values
-        
-        # --- Construct Action Sequence (Target) ---
-        # Action Dim per step: 3 (controls)
-        # I, v_lye, v_c
-        
-        self.action_dim = 3
-        self.action_seq_data = np.zeros((n_samples, self.action_dim, self.horizon))
-        
-        for k in range(self.horizon):
-            # Controls
-            col_I = f'plan_step_{k}_I'
-            col_v_lye = f'plan_step_{k}_v_lye'
-            col_v_c = f'plan_step_{k}_v_c'
-            
-            if col_I in df.columns:
-                self.action_seq_data[:, 0, k] = df[col_I].values
-                self.action_seq_data[:, 1, k] = df[col_v_lye].values
-                self.action_seq_data[:, 2, k] = df[col_v_c].values
+        self._load_condition_data(get_col, n_samples)
+        self._load_action_data(get_col, n_samples)
         
         # Normalization
         self.normalize = normalize
         if self.normalize:
             self._normalize_data()
-            
-            # Save stats
-            output_dir = os.path.dirname(csv_file)
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
+            output_dir = os.path.join(project_root, 'output', 'single_stack')
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
             stats_path = os.path.join(output_dir, 'diffusion_stats.npz')
-            np.savez(stats_path, 
+            np.savez(stats_path,
                      cond_min=self.cond_min, cond_max=self.cond_max,
                      action_min=self.action_min, action_max=self.action_max)
             print(f"Stats saved to {stats_path}")
+    
+    def _load_condition_data(self, get_col, n_samples):
+        self.cond_dim = 6 + 1 + self.horizon + 3
+        self.cond_data = np.zeros((n_samples, self.cond_dim))
+        
+        self.cond_data[:, 0] = get_col('T_s_in')
+        self.cond_data[:, 1] = get_col('T_s')
+        self.cond_data[:, 2] = get_col('T_sep')
+        self.cond_data[:, 3] = get_col('T_c_out')
+        self.cond_data[:, 4] = get_col('n_liq')
+        self.cond_data[:, 5] = get_col('n_gas')
+        
+        self.cond_data[:, 6] = get_col('T_ref')
+        for k in range(self.horizon):
+            col_name = f'P_ref_future_{k}'
+            if col_name in self.col_map:
+                self.cond_data[:, 7 + k] = get_col(col_name)
+            else:
+                self.cond_data[:, 7 + k] = self.data['P_ref'].shift(-k).ffill().values
+        base_idx = 7 + self.horizon
+        
+        self.cond_data[:, base_idx] = get_col('I_prev')
+        self.cond_data[:, base_idx + 1] = get_col('v_lye_prev')
+        self.cond_data[:, base_idx + 2] = get_col('v_c_prev')
+    
+    def _load_action_data(self, get_col, n_samples):
+        self.action_dim = 3
+        self.action_seq_data = np.zeros((n_samples, self.action_dim, self.horizon))
+        if f'plan_step_0_I' in self.col_map:
+            for k in range(self.horizon):
+                self.action_seq_data[:, 0, k] = get_col(f'plan_step_{k}_I')
+                self.action_seq_data[:, 1, k] = get_col(f'plan_step_{k}_v_lye')
+                self.action_seq_data[:, 2, k] = get_col(f'plan_step_{k}_v_c')
+        else:
+            raise ValueError("No action plan columns found in the dataset.")
 
     def _normalize_data(self):
         # Condition normalization
@@ -111,17 +95,18 @@ class SingleStackDataset(Dataset):
         self.cond_max = np.max(self.cond_data, axis=0)
         
         # Avoid div by zero
-        self.cond_max[self.cond_max == self.cond_min] += 1.0
+        if np.any(self.cond_max == self.cond_min):
+            self.cond_max[self.cond_max == self.cond_min] += 1.0
         
         self.cond_data = (self.cond_data - self.cond_min) / (self.cond_max - self.cond_min) * 2 - 1
         
-        # Action normalization (Global min/max across horizon for each dimension)
-        # Shape: (N, 7, Horizon) -> reshape to (N*Horizon, 7) to find min/max
-        action_flat = self.action_seq_data.transpose(0, 2, 1).reshape(-1, self.action_dim)
-        self.action_min = np.min(action_flat, axis=0)
-        self.action_max = np.max(action_flat, axis=0)
+        # Action normalization
+        I_min, I_max = 0.0, 9360.0
+        v_lye_min, v_lye_max = 0.0, 0.1
+        v_c_min, v_c_max = 0.0, 1.0
         
-        self.action_max[self.action_max == self.action_min] += 1.0
+        self.action_min = np.array([I_min, v_lye_min, v_c_min])
+        self.action_max = np.array([I_max, v_lye_max, v_c_max])
         
         # Reshape min/max for broadcasting: (7, 1)
         action_min_bc = self.action_min.reshape(1, -1, 1)
@@ -181,7 +166,7 @@ def train(args):
             hidden_dim=256,
             levels=4
         )
-        noise_scheduler = DDPMScheduler(num_timesteps=100, device=device)
+        noise_scheduler = DDPMScheduler(device=device)
     elif args.model_type == 'diffusion_mlp':
         model = DiffusionMLP(
             action_dim=dataset.action_dim,
@@ -190,12 +175,11 @@ def train(args):
             hidden_dim=256,
             num_res_blocks=3
         )
-        noise_scheduler = DDPMScheduler(num_timesteps=100, device=device)
+        noise_scheduler = DDPMScheduler(device=device)
     else:
         raise ValueError(f"Unknown model type: {args.model_type}")
     
     model.to(device)
-    noise_scheduler.device = device # Ensure scheduler knows device if needed
     
     print("-" * 50)
     print(f"Model Initialized Successfully")
@@ -284,18 +268,22 @@ def train(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # Find the latest dataset
-    default_data_dir = r'c:\Users\admin\Desktop\sjtu\AWE\output\single_stack\dataset'
-    # Simple logic to find latest csv
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    default_data_dir = os.path.join(project_root, 'output', 'single_stack', 'dataset')
     latest_csv = ""
     if os.path.exists(default_data_dir):
         files = [f for f in os.listdir(default_data_dir) if f.endswith('.csv')]
-        if files:
-            files.sort(reverse=True)
-            latest_csv = os.path.join(default_data_dir, files[0])
+        nmpc_files = [f for f in files if f.lower().startswith('nmpc_dataset')]
+        if nmpc_files:
+            nmpc_files.sort(reverse=True)
+            latest_csv = os.path.join(default_data_dir, nmpc_files[0])
+        else:
+            non_warmup = [f for f in files if not f.lower().startswith('warmup')]
+            if non_warmup:
+                non_warmup.sort(reverse=True)
+                latest_csv = os.path.join(default_data_dir, non_warmup[0])
     
-    # Default output dir for policy
-    default_output_dir = r'c:\Users\admin\Desktop\sjtu\AWE\output\single_stack\policy'
+    default_output_dir = os.path.join(project_root, 'output', 'single_stack', 'policy')
     if not os.path.exists(default_output_dir):
         os.makedirs(default_output_dir)
 

@@ -331,7 +331,7 @@ def run_warmup_phase(sim, controller, full_profile, dt_ctrl, horizon, sim_dt, T_
             v_c_prev = v_c_cmd
             
         # Save Warmup Data
-        save_batch(warmup_data_list, output_dir, timestamp, prefix="warmup")
+        save_batch(warmup_data_list, output_dir, timestamp, prefix="nmpc_dataset")
         plot_all(output_dir, timestamp, prefix="warmup", df=pd.DataFrame(warmup_plot_history))
         print("Warmup Phase Completed.\n")
         

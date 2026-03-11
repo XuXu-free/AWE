@@ -16,7 +16,7 @@ except ImportError:
     from plant.multi_stack_simulator import MultiStackSimulator
 
 class MultiStackModelController(BaseController):
-    def __init__(self, dt=1.0, horizon=10, model_type='tcn', model_path=None, stats_path=r'd:\Projects\AWE\output\multi_stack\diffusion_stats.npz'):
+    def __init__(self, dt=60.0, horizon=5, model_type='tcn', model_path=None, stats_path=r'd:\Projects\AWE\output\multi_stack\diffusion_stats.npz'):
         super().__init__(dt)
         self.horizon = horizon
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -44,7 +44,7 @@ class MultiStackModelController(BaseController):
         
         # Constraints (from NMPC)
         self.I_min = 0.0
-        self.I_max = 7800.0
+        self.I_max = 7500.0
         self.v_lye_min = 0.0
         self.v_lye_max = 0.1
         self.v_c_min = 0.0
@@ -217,7 +217,7 @@ class MultiStackModelController(BaseController):
         
         return cond_norm
 
-    def _denormalize_clamp_action(self, samples_norm):
+    def _denormalize_action(self, samples_norm):
         # Shape: (Batch, Action_Dim, Horizon)
         # samples_norm = torch.clamp(samples_norm, -1.0, 1.0)
         
@@ -227,13 +227,26 @@ class MultiStackModelController(BaseController):
         
         # Denormalized actions: (Batch, 9, Horizon)
         actions = ((samples_norm + 1) / 2) * action_diff_b + action_min_b
-        
+        return actions
+
+    def _clamp_action(self, actions):
+        """
+        Final safety clamp to ensure actions are within physical limits.
+        """
         # Apply Constraints
         actions[:, 0:4, :] = torch.clamp(actions[:, 0:4, :], self.I_min, self.I_max)
         actions[:, 4:8, :] = torch.clamp(actions[:, 4:8, :], self.v_lye_min, self.v_lye_max)
         actions[:, 8, :] = torch.clamp(actions[:, 8, :], self.v_c_min, self.v_c_max)
         
         return actions
+
+    def _projection(self, actions):
+        """
+        Project the action onto the feasible set C.
+        P_C(x) = argmin ||y - x||^2 s.t. y in C
+        For box constraints, this is equivalent to clamping.
+        """
+        return self._clamp_action(actions)
 
     def get_action(self, state, P_ref, T_ref, last_action):
         """
@@ -277,7 +290,11 @@ class MultiStackModelController(BaseController):
             )
         
         # 4. Denormalize
-        actions = self._denormalize_clamp_action(samples_norm)
+        actions_denorm = self._denormalize_action(samples_norm)
+        
+        
+        actions_proj = self._projection(actions_denorm)
+        actions = self._clamp_action(actions_proj)
         
         # Convert to numpy for rollout evaluation
         actions_np = actions.cpu().numpy() # Shape: (64, 9, Horizon)
@@ -365,7 +382,7 @@ class MultiStackModelController(BaseController):
         
         return I_cmd, v_lye_cmd, v_c_cmd
 
-    def get_all_actions(self, state, P_ref, T_ref=358.15, last_action=None):
+    def get_all_actions(self, state, P_ref, T_ref, last_action):
         """
         Returns all generated actions in the horizon.
         Output shape: (N, n_controls)
@@ -378,7 +395,9 @@ class MultiStackModelController(BaseController):
         samples_norm = self.scheduler.sample(self.model, cond_norm, (1, self.action_dim, self.horizon))
         
         # Denormalize
-        action = self._denormalize_clamp_action(samples_norm)
+        action_denorm = self._denormalize_action(samples_norm)
+        action_proj = self._projection(action_denorm)
+        action = self._clamp_action(action_proj)
         
         # Shape: (1, 9, Horizon) -> (Horizon, 9)
         action_seq = action.squeeze(0).permute(1, 0).cpu().numpy()

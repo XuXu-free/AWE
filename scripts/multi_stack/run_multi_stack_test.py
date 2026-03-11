@@ -29,7 +29,7 @@ def load_december_profile():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
     
-    profile_path = os.path.join(project_root, 'output', 'power', 'wind', 'wind_power_2025-12_1min.csv')
+    profile_path = os.path.join(project_root, 'output', 'power', 'wind', 'wind_power_2025-02_1min.csv')
     
     if not os.path.exists(profile_path):
         raise FileNotFoundError(f"December profile not found at {profile_path}")
@@ -44,7 +44,7 @@ def run_warmup_phase(sim, ctrl, history, last_action, dt, output_dir, filename_p
     """
     warmup_duration = 14400 # seconds (4h)
     warmup_steps = int(warmup_duration / dt)
-    warmup_P_ref = 6.0e6 # 6MW constant
+    warmup_P_ref = 10.0e6 # 6MW constant
     
     print(f"Starting Warm-up Phase ({warmup_duration}s at {warmup_P_ref/1e6}MW)...")
     

@@ -4,15 +4,15 @@ from .base_simulator import BaseSimulator
 from scipy.integrate import solve_ivp
 
 class SingleStackSimulator(BaseSimulator):
-    def __init__(self, dt=1.0):
-        super().__init__(dt)
+    def __init__(self, sim_dt=0.2):
+        super().__init__(sim_dt)
         # --- Parameters ---
         self.N = 1
         self.I_rated = 7800.0
         self.N_cell = 368
         self.A_cell = 2.0
-        self.p_sys = 1.6e6  # 1.6 MPa
-        self.delta_P = 0.01 * self.p_sys
+        self.P_sys = 1.6e6  # 1.6 MPa
+        self.delta_P = 0.01 * self.P_sys
         
         # Electrochemical
         self.r1, self.r2, self.r3 = 3.202e-5, 8.970e-8, -4.193e-12
@@ -60,6 +60,7 @@ class SingleStackSimulator(BaseSimulator):
         self.S_H2_lye = self._calculate_h2_solubility()
         
         self.R = 8.314
+        self.F = 96485.0
         self.mu_lye = 8.76e-4
         
         # Initial Conditions
@@ -95,7 +96,7 @@ class SingleStackSimulator(BaseSimulator):
         w_lye = 0.30        # 30 wt% KOH
         
         # S_H2_H2O = rho_H2O / (M_H2O * p_atm * H_H2)
-        S_H2_H2O = rho_H2O * self.p_sys / (M_H2O * p_atm * H_H2)
+        S_H2_H2O = rho_H2O * self.P_sys / (M_H2O * p_atm * H_H2)
         
         # S_H2_lye = S_H2_H2O / 10^(K_H2 * w_lye)
         return S_H2_H2O / (10**(K_H2 * w_lye))
@@ -108,7 +109,7 @@ class SingleStackSimulator(BaseSimulator):
         U_rev = 1.229
         
         # Ohmic
-        R_ohm = self.r1 + self.r2 * T_s + self.r3 * self.p_sys
+        R_ohm = self.r1 + self.r2 * T_s + self.r3 * self.P_sys
         V_ohm = R_ohm * I
         
         # Activation
@@ -193,7 +194,7 @@ class SingleStackSimulator(BaseSimulator):
         n_dot_H2_lye = self.S_H2_lye * self.rho_lye * v_lye / 4.0
         
         # b) Diffusion
-        n_dot_H2_diff = self.A_cell * self.N_cell * self.D_eff * self.S_H2_lye * self.p_sys / self.delta
+        n_dot_H2_diff = self.A_cell * self.N_cell * self.D_eff * self.S_H2_lye * self.P_sys / self.delta
         
         # c) Convection
         n_dot_H2_conv = self.A_cell * self.N_cell * (self.K_eff / self.mu_lye) * self.S_H2_lye * self.rho_lye * (self.delta_P / self.delta)
@@ -217,7 +218,7 @@ class SingleStackSimulator(BaseSimulator):
         sum_n_dot_O2 = n_dot_O2_prod
         
         if sum_n_dot_O2 > 1e-9:
-            n_dot_H2_out = (self.R * T_sep * n_H2_sep_gas * sum_n_dot_O2) / (self.p_sys * self.V_sep_gas)
+            n_dot_H2_out = (self.R * T_sep * n_H2_sep_gas * sum_n_dot_O2) / (self.P_sys * self.V_sep_gas)
         else:
             n_dot_H2_out = 0.0
             
@@ -268,7 +269,7 @@ class SingleStackSimulator(BaseSimulator):
             
 
             target_HTO_fraction = self.HTO_init / 100.0
-            n_gas = target_HTO_fraction * (self.p_sys * self.V_sep_gas) / (self.R * self.T_sep_init)
+            n_gas = target_HTO_fraction * (self.P_sys * self.V_sep_gas) / (self.R * self.T_sep_init)
             
             x0[4] = n_gas
             x0[5] = n_gas

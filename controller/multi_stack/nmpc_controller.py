@@ -4,7 +4,7 @@ import numpy as np
 from ..base_controller import BaseController
 
 class MultiStackNMPCController(BaseController):
-    def __init__(self, dt=60.0, horizon=10, dt_sub=0.2):
+    def __init__(self, dt=60.0, horizon=5, dt_sub=0.2):
         self.dt = dt
         self.dt_sub = dt_sub
         self.horizon = horizon

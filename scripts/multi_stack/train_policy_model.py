@@ -212,27 +212,7 @@ class AWEDataset(Dataset):
                     self.action_seq_data[:, 8, k] = get_col(col_name)
                     
         else:
-            # Fallback for old datasets (just repeat single action or shift?)
-            # For strict training, maybe raise error or warn.
-            # Let's fallback to repeating the single step action for now to avoid breaking old data tests immediately
-            print("Warning: Plan columns not found. Using single step action repeated.")
-            # I (4)
-            if 'I_1' in self.col_map:
-                self.action_seq_data[:, 0, :] = get_col('I_1')[:, None]
-                self.action_seq_data[:, 1, :] = get_col('I_2')[:, None]
-                self.action_seq_data[:, 2, :] = get_col('I_3')[:, None]
-                self.action_seq_data[:, 3, :] = get_col('I_4')[:, None]
-            
-            # v_lye (4)
-            if 'v_lye_1' in self.col_map:
-                self.action_seq_data[:, 4, :] = get_col('v_lye_1')[:, None]
-                self.action_seq_data[:, 5, :] = get_col('v_lye_2')[:, None]
-                self.action_seq_data[:, 6, :] = get_col('v_lye_3')[:, None]
-                self.action_seq_data[:, 7, :] = get_col('v_lye_4')[:, None]
-                
-            # v_c (1)
-            if 'v_c' in self.col_map:
-                self.action_seq_data[:, 8, :] = get_col('v_c')[:, None]
+            raise ValueError("No action plan columns found in the dataset.")
                 
         self.action_dim = 9 # Total dimension
 
