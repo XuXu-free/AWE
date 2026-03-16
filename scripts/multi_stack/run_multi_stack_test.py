@@ -15,7 +15,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 
 from plant.multi_stack_simulator import MultiStackSimulator
 from controller.multi_stack.nmpc_controller import MultiStackNMPCController
-from controller.multi_stack.model_controller import MultiStackModelController
+from controller.multi_stack.model_controller import MultiStackModelController, MultiStackModelCBFController
 from controller.multi_stack.model_dynamic_controller import MultiStackModelDynamicController
 
 def add_measurement_noise(state):
@@ -213,7 +213,7 @@ def calculate_metrics(history, duration, output_dir, filename):
     
     print("Test Complete. Results saved.")
 
-def run_test(controller_type='nmpc', model_type='tcn'):
+def run_test(controller_type='nmpc', model_type='tcn', duration=86400):
     # Setup - aligned with generate_dataset.py
     sim_dt = 0.2
     dt_ctrl = 60.0
@@ -236,6 +236,10 @@ def run_test(controller_type='nmpc', model_type='tcn'):
         ctrl = MultiStackModelController(dt=dt_ctrl, horizon=horizon, model_type=model_type, 
                                              model_path=model_path, stats_path=stats_path)
         print(f"Using Model Controller ({model_type})")
+    elif controller_type == 'model_cbf':
+        ctrl = MultiStackModelCBFController(dt=dt_ctrl, horizon=horizon, model_type=model_type, 
+                                             model_path=model_path, stats_path=stats_path)
+        print(f"Using Model CBF Controller ({model_type})")
     elif controller_type == 'model_dynamic':
         ctrl = MultiStackModelDynamicController(dt=dt_ctrl, horizon=horizon, model_type=model_type, 
                                              model_path=model_path, stats_path=stats_path)
@@ -251,7 +255,6 @@ def run_test(controller_type='nmpc', model_type='tcn'):
     
     # Use 24 hours for the test to be representative but manageable
     # (The full December data is 31 days which is too long for a single script run)
-    duration = 86400 # 24 hours
     if len(full_profile) < duration/60:
          duration = len(full_profile) * 60
     
@@ -501,10 +504,11 @@ def save_data_csv(history, output_dir, filename):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run Multi-Stack Test')
-    parser.add_argument('--controller', type=str, default='model', choices=['nmpc', 'model', 'model_dynamic'], help='Controller type')
+    parser.add_argument('--controller', type=str, default='model', choices=['nmpc', 'model', 'model_dynamic', 'model_cbf'], help='Controller type')
     parser.add_argument('--model_type', type=str, default='flow_tcn', 
                         choices=['diffusion_mlp', 'diffusion_tcn', 'flow_mlp', 'flow_tcn', 'flow_mlp_hardflow', 'flow_tcn_hardflow', 'mlp', 'tcn', 'flow_matching'], 
                         help='Model type (only for model controller)')
+    parser.add_argument('--duration', type=int, default=86400, help='Duration of test in seconds')
     args = parser.parse_args()
     
-    run_test(controller_type=args.controller, model_type=args.model_type)
+    run_test(controller_type=args.controller, model_type=args.model_type, duration=args.duration)
