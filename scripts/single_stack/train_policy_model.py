@@ -2,6 +2,7 @@
 import os
 import sys
 import torch
+import torch.nn as nn
 import numpy as np
 import pandas as pd
 from torch.utils.data import Dataset, DataLoader, random_split
@@ -12,7 +13,7 @@ import matplotlib.pyplot as plt
 # Add parent directory to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from diffusion.models import DiffusionMLP, DiffusionTCN, FlowMatchingTCN, FlowMatchingMLP
+from diffusion.models import DiffusionMLP, DiffusionTCN, FlowMatchingTCN, FlowMatchingMLP, PureMLP
 from diffusion.ddpm import DDPMScheduler
 from diffusion.flow_matching import FlowMatchingScheduler
 
@@ -55,24 +56,25 @@ class SingleStackDataset(Dataset):
             print(f"Stats saved to {stats_path}")
     
     def _load_condition_data(self, get_col, n_samples):
-        self.cond_dim = 6 + 1 + self.horizon + 3
+        self.cond_dim = 7 + 1 + self.horizon + 3
         self.cond_data = np.zeros((n_samples, self.cond_dim))
         
         self.cond_data[:, 0] = get_col('T_s_in')
         self.cond_data[:, 1] = get_col('T_s')
         self.cond_data[:, 2] = get_col('T_sep')
         self.cond_data[:, 3] = get_col('T_c_out')
-        self.cond_data[:, 4] = get_col('n_liq')
-        self.cond_data[:, 5] = get_col('n_gas')
+        self.cond_data[:, 4] = get_col('n_H2_an')
+        self.cond_data[:, 5] = get_col('n_liq')
+        self.cond_data[:, 6] = get_col('n_gas')
         
-        self.cond_data[:, 6] = get_col('T_ref')
+        self.cond_data[:, 7] = get_col('T_ref')
         for k in range(self.horizon):
             col_name = f'P_ref_future_{k}'
             if col_name in self.col_map:
-                self.cond_data[:, 7 + k] = get_col(col_name)
+                self.cond_data[:, 8 + k] = get_col(col_name)
             else:
-                self.cond_data[:, 7 + k] = self.data['P_ref'].shift(-k).ffill().values
-        base_idx = 7 + self.horizon
+                self.cond_data[:, 8 + k] = self.data['P_ref'].shift(-k).ffill().values
+        base_idx = 8 + self.horizon
         
         self.cond_data[:, base_idx] = get_col('I_prev')
         self.cond_data[:, base_idx + 1] = get_col('v_lye_prev')
@@ -176,6 +178,15 @@ def train(args):
             num_res_blocks=3
         )
         noise_scheduler = DDPMScheduler(device=device)
+    elif args.model_type == 'pure_mlp':
+        model = PureMLP(
+            action_dim=dataset.action_dim,
+            obs_dim=dataset.cond_dim,
+            horizon=args.horizon,
+            hidden_dim=256,
+            num_res_blocks=3
+        )
+        noise_scheduler = None # No scheduler for pure MLP
     else:
         raise ValueError(f"Unknown model type: {args.model_type}")
     
@@ -203,6 +214,9 @@ def train(args):
     # 4. Optimizer
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     
+    # Loss for Pure MLP
+    mse_loss = nn.MSELoss()
+    
     # 5. Loop
     best_val_loss = float('inf')
     history = {'train_loss': [], 'val_loss': []}
@@ -214,7 +228,11 @@ def train(args):
             cond = cond.to(device)
             action_seq = action_seq.to(device)
             
-            if 'flow' in args.model_type:
+            if args.model_type == 'pure_mlp':
+                # Direct prediction
+                pred_action = model(cond)
+                loss = mse_loss(pred_action, action_seq)
+            elif 'flow' in args.model_type:
                 loss = noise_scheduler.compute_loss(model, action_seq, cond)
             else:
                 timesteps = torch.randint(0, noise_scheduler.num_timesteps, (action_seq.shape[0],), device=device).long()
@@ -236,7 +254,10 @@ def train(args):
                 cond = cond.to(device)
                 action_seq = action_seq.to(device)
                 
-                if 'flow' in args.model_type:
+                if args.model_type == 'pure_mlp':
+                    pred_action = model(cond)
+                    loss = mse_loss(pred_action, action_seq)
+                elif 'flow' in args.model_type:
                     loss = noise_scheduler.compute_loss(model, action_seq, cond)
                 else:
                     timesteps = torch.randint(0, noise_scheduler.num_timesteps, (action_seq.shape[0],), device=device).long()
@@ -293,7 +314,7 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--lr', type=float, default=1e-4)
-    parser.add_argument('--model_type', type=str, default='diffusion_tcn', choices=['diffusion_tcn', 'diffusion_mlp', 'flow_tcn', 'flow_mlp'], help='Model type: diffusion_tcn, diffusion_mlp, flow_tcn, flow_mlp')
+    parser.add_argument('--model_type', type=str, default='diffusion_tcn', choices=['diffusion_tcn', 'diffusion_mlp', 'flow_tcn', 'flow_mlp', 'pure_mlp'], help='Model type: diffusion_tcn, diffusion_mlp, flow_tcn, flow_mlp, pure_mlp')
     
     args = parser.parse_args()
     

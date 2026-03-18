@@ -29,7 +29,7 @@ def load_december_profile():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
     
-    profile_path = os.path.join(project_root, 'output', 'power', 'wind', 'wind_power_2025-12_1min.csv')
+    profile_path = os.path.join(project_root, 'output', 'power', 'wind', 'wind_power_2025-02_1min.csv')
     
     if not os.path.exists(profile_path):
         raise FileNotFoundError(f"December profile not found at {profile_path}")
@@ -41,30 +41,42 @@ def load_december_profile():
 
 def run_warmup_phase(sim, ctrl, history, last_action, sim_dt, output_dir, filename_prefix="warmup", T_ref=358.15):
     """ 
-    Run a warmup phase at constant power to stabilize temperatures.
+    Run a warmup phase similar to generate_dataset.py.
+    Gradually ramps up power from 2MW to the start of the profile.
+    Uses the controller to determine actions.
     """
     warmup_duration = 4 * 60 * 60 # 4h
     warmup_steps = int(warmup_duration / sim_dt)
-    warmup_P_ref = 2.0e6 # 2MW constant
     
-    print(f"Starting Warm-up Phase ({warmup_duration}s at {warmup_P_ref/1e6}MW)...")
+    # Load profile to determine end target
+    full_profile = load_december_profile()
     
-    # Pre-calculate future profile for warmup (constant)
-    # SingleStackNMPCController uses N_p instead of horizon
+    P_warmup_start = 2.0e6 # 2MW
+    P_warmup_end = full_profile[0] # Target is start of real profile
+    
+    print(f"Starting Warm-up Phase ({warmup_duration}s)...")
+    print(f"Ramping from {P_warmup_start/1e6}MW to {P_warmup_end/1e6}MW")
+    
+    # Controller settings
     horizon = getattr(ctrl, 'N_p', getattr(ctrl, 'horizon', 5))
-    P_future = [warmup_P_ref] * horizon
-    
-    # Control interval steps
     ctrl_steps = int(ctrl.dt / sim_dt)
     total_ctrl_steps = warmup_steps // ctrl_steps
-    warmup_profile = np.array([warmup_P_ref], dtype=float)
-    warmup_profile_indices = np.zeros(warmup_steps, dtype=int)
-    plot_every_steps = max(1, int(1000 / sim_dt)) # Plot occasionally
+    
     warmup_data_filename = f"{filename_prefix}.csv"
+    
+    # For plotting/logging
+    warmup_profile = np.zeros(warmup_steps)
+    warmup_profile_indices = np.arange(warmup_steps, dtype=int)
+    plot_every_steps = max(1, int(1000 / sim_dt))
     
     with tqdm(total=total_ctrl_steps, desc="Warmup", unit="ctrl_step") as pbar:
         for i in range(warmup_steps):
             t_warmup = -warmup_duration + i * sim_dt
+            
+            # Calculate current P_ref for warmup (Ramp)
+            alpha = i / max(1, warmup_steps - 1)
+            current_P_ref = P_warmup_start + alpha * (P_warmup_end - P_warmup_start)
+            warmup_profile[i] = current_P_ref
             
             # Measure State (with noise)
             measured_state = add_measurement_noise(sim.state)
@@ -84,27 +96,46 @@ def run_warmup_phase(sim, ctrl, history, last_action, sim_dt, output_dir, filena
             
             # Calculate Extra Metrics
             n_H2_sep_gas = measured_state[6]
-            # T_sep is already Kelvin
             hto_pct = (n_H2_sep_gas * sim.R * T_sep) / (sim.P_sys * sim.V_sep_gas) * 100 
-            
             h2_rate = sim.N_cell * last_action[0] * eta / (2 * sim.F)
             
-            # Store previous action before update
+            # Store previous action
             prev_action = list(last_action)
 
             # Control Update
             if i % ctrl_steps == 0:
-                # Controller expects Kelvin T_ref
-                I_cmd, v_lye_cmd, v_c_cmd = ctrl.get_action(
-                    measured_state, P_future, T_ref=T_ref, last_action=last_action
-                )
+                # Construct Future Profile for Controller
+                # Interpolate into the ramp, and eventually into the real profile
+                P_future = []
+                for k in range(horizon):
+                    future_idx = i + k * ctrl_steps
+                    if future_idx < warmup_steps:
+                        alpha_f = future_idx / max(1, warmup_steps - 1)
+                        val = P_warmup_start + alpha_f * (P_warmup_end - P_warmup_start)
+                    else:
+                        # Into real profile
+                        real_idx = int((future_idx - warmup_steps) * sim_dt / 60) # Approx minute index
+                        if real_idx < len(full_profile):
+                            val = full_profile[real_idx]
+                        else:
+                            val = full_profile[-1]
+                    P_future.append(val)
+                
+                # Get Action
+                try:
+                    I_cmd, v_lye_cmd, v_c_cmd = ctrl.get_action(
+                        measured_state, P_future, T_ref=T_ref, last_action=last_action
+                    )
+                except Exception as e:
+                    print(f"Controller failed at warmup step {i}: {e}")
+                    I_cmd, v_lye_cmd, v_c_cmd = last_action # Fallback
+                
                 action_sim = np.array([I_cmd, v_lye_cmd, v_c_cmd])
                 last_action = [I_cmd, v_lye_cmd, v_c_cmd]
                 
-                # Update progress bar
                 pbar.set_postfix({
                     "t": f"{t_warmup:.0f}s",
-                    "P_ref": f"{warmup_P_ref/1e6:.1f}MW",
+                    "P_ref": f"{current_P_ref/1e6:.1f}MW",
                     "P_real": f"{P_real/1e6:.1f}MW",
                     "T_s": f"{T_s-273.15:.1f}C"
                 })
@@ -261,9 +292,12 @@ def run_test(controller_type='nmpc', model_type='tcn'):
     output_dir = os.path.join(project_root, 'output', 'single_stack', 'test')
     plot_every_steps = max(1, int(2000 / sim_dt))
     
-    # --- Warm-up Phase ---
+    # --- Warm-up Phase (Always use NMPC) ---
+    print("Initializing Warmup Controller (NMPC)...")
+    warmup_ctrl = SingleStackNMPCController(dt=dt_ctrl, horizon=horizon, sim_dt=sim_dt)
+    
     last_action = run_warmup_phase(
-        sim, ctrl, history, last_action, sim_dt, 
+        sim, warmup_ctrl, history, last_action, sim_dt, 
         output_dir=output_dir, 
         filename_prefix=f"warmup_{timestamp}", 
         T_ref=T_ref
@@ -313,14 +347,15 @@ def run_test(controller_type='nmpc', model_type='tcn'):
 
             # Control Update
             if i % ctrl_steps == 0:
-                # Get P_future from profile
-                # We need next N_p steps at dt_ctrl intervals
+                # Get P_future from profile (Simplified to match multi-stack logic)
+                # t is in seconds, full_profile is 1-min resolution
+                idx_min = int(t / 60)
+                
                 P_future = []
                 for k in range(horizon):
-                    t_future = t + k * dt_ctrl
-                    idx_future = profile_indices[i + k]
-                    if idx_future < len(full_profile):
-                        P_future.append(full_profile[idx_future])
+                    idx_k = idx_min + k
+                    if idx_k < len(full_profile):
+                        P_future.append(full_profile[idx_k])
                     else:
                         P_future.append(full_profile[-1])
                 
@@ -480,7 +515,7 @@ def save_data_csv(history, output_dir, filename):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run Single-Stack Test')
     parser.add_argument('--controller', type=str, default='nmpc', choices=['nmpc', 'model'], help='Controller type')
-    parser.add_argument('--model_type', type=str, default='diffusion_tcn', choices=['diffusion_tcn', 'diffusion_mlp', 'flow_tcn', 'flow_mlp'], help='Model type for model-based controller')
+    parser.add_argument('--model_type', type=str, default='diffusion_tcn', choices=['diffusion_tcn', 'diffusion_mlp', 'flow_tcn', 'flow_mlp', 'pure_mlp'], help='Model type for model-based controller')
 
     args = parser.parse_args()
     

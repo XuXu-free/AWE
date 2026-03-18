@@ -300,6 +300,9 @@ def run_warmup_phase(sim, controller, full_profile, dt_ctrl, horizon, sim_dt, T_
                 row[f'plan_step_{k}_state_T_s'] = s_k[1]
                 row[f'plan_step_{k}_state_T_sep'] = s_k[2]
                 row[f'plan_step_{k}_state_T_c_out'] = s_k[3]
+                row[f'plan_step_{k}_state_n_H2_an'] = s_k[4]
+                row[f'plan_step_{k}_state_n_liq'] = s_k[5]
+                row[f'plan_step_{k}_state_n_gas'] = s_k[6]
 
             warmup_data_list.append(row)
             warmup_plot_history.append({
@@ -571,6 +574,9 @@ def generate_dataset():
                 row[f'plan_step_{k}_state_T_s'] = s_k[1]
                 row[f'plan_step_{k}_state_T_sep'] = s_k[2]
                 row[f'plan_step_{k}_state_T_c_out'] = s_k[3]
+                row[f'plan_step_{k}_state_n_H2_an'] = s_k[4]
+                row[f'plan_step_{k}_state_n_liq'] = s_k[5]
+                row[f'plan_step_{k}_state_n_gas'] = s_k[6]
                 
             data_list.append(row)
             

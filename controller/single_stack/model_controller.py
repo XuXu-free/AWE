@@ -4,7 +4,7 @@ import sys
 import torch
 import numpy as np
 from ..base_controller import BaseController
-from diffusion.models import DiffusionMLP, DiffusionTCN, FlowMatchingTCN, FlowMatchingMLP
+from diffusion.models import DiffusionMLP, DiffusionTCN, FlowMatchingTCN, FlowMatchingMLP, PureMLP
 from diffusion.ddpm import DDPMScheduler
 from diffusion.flow_matching import FlowMatchingScheduler
 from diffusion.hardflow_scheduler import HardFlowScheduler
@@ -108,6 +108,15 @@ class SingleStackModelController(BaseController):
                 levels=4
             ).to(self.device)
             self.scheduler = DDPMScheduler(device=self.device)
+        elif model_type == 'pure_mlp':
+            self.model = PureMLP(
+                action_dim=self.action_dim, 
+                obs_dim=self.obs_dim, 
+                horizon=horizon,
+                hidden_dim=256,
+                num_res_blocks=3
+            ).to(self.device)
+            self.scheduler = None # No scheduler
         else:
             raise ValueError(f"Unknown model_type: {model_type}")
 
@@ -154,26 +163,27 @@ class SingleStackModelController(BaseController):
         T_s = state[1]
         T_sep = state[2]
         T_c_out = state[3]
+        n_H2_an = state[4]
         n_liq = state[5]
         n_gas = state[6]
-        # Note: n_H2_an (index 4) is skipped in dataset generation
         
         # Order must match SingleStackDataset in train_policy_model.py
-        # 1. System State (6): T_s_in, T_s, T_sep, T_c_out, n_liq, n_gas
+        # 1. System State (7): T_s_in, T_s, T_sep, T_c_out, n_H2_an, n_liq, n_gas
         cond[0] = T_s_in
         cond[1] = T_s
         cond[2] = T_sep
         cond[3] = T_c_out
-        cond[4] = n_liq
-        cond[5] = n_gas
+        cond[4] = n_H2_an
+        cond[5] = n_liq
+        cond[6] = n_gas
         
         # 2. Reference (1 + N)
         # T_ref
-        cond[6] = T_ref
+        cond[7] = T_ref
         
         # P_ref_future
         P_ref_arr = np.array(P_ref)
-        base_idx = 7
+        base_idx = 8
         if len(P_ref_arr) >= self.horizon:
             cond[base_idx : base_idx + self.horizon] = P_ref_arr[:self.horizon]
         else:
@@ -181,12 +191,15 @@ class SingleStackModelController(BaseController):
             cond[base_idx + len(P_ref_arr) : base_idx + self.horizon] = P_ref_arr[-1]
             
         # 3. Prev Actions (3)
-        base_idx = 7 + self.horizon
+        base_idx = 8 + self.horizon
         cond[base_idx : base_idx + 3] = last_action_vec
         
         # Normalize
         cond_tensor = torch.FloatTensor(cond).to(self.device).unsqueeze(0) # Batch size 1
-        cond_norm = (cond_tensor - self.cond_min) / self.cond_diff
+        cond_norm = (cond_tensor - self.cond_min) / self.cond_diff * 2 - 1
+        
+        # Clamp to [-1, 1] to handle out-of-distribution values (e.g. higher power in Dec vs Jan)
+        cond_norm = torch.clamp(cond_norm, -1.0, 1.0)
         
         return cond_norm
 
@@ -214,12 +227,15 @@ class SingleStackModelController(BaseController):
         cond_norm = self._prepare_condition(state, P_ref, T_ref, last_action_vec)
         
         # 3. Sample 128 candidates
-        num_candidates = 128
+        num_candidates = 1
         cond_norm_batch = cond_norm.repeat(num_candidates, 1)
         
         # Sample sequence: (Batch, Action_Dim, Horizon)
         noise_scale = 0.0
-        if isinstance(self.scheduler, DDPMScheduler):
+        if self.scheduler is None:
+             # Pure MLP direct prediction
+             samples_norm = self.model(cond_norm_batch)
+        elif isinstance(self.scheduler, DDPMScheduler):
             samples_norm = self.scheduler.sample(self.model, cond_norm_batch, (num_candidates, self.action_dim, self.horizon))
         elif isinstance(self.scheduler, FlowMatchingScheduler):
             samples_norm = self.scheduler.sample(self.model, cond_norm_batch, (num_candidates, self.action_dim, self.horizon), noise_scale=noise_scale)
@@ -244,6 +260,15 @@ class SingleStackModelController(BaseController):
             P_ref_eval = P_ref_arr[:self.horizon]
             
         steps_per_ctrl = int(self.dt / self.sim_rollout.dt)
+        if steps_per_ctrl < 1:
+            # If rollout sim dt > ctrl dt (unlikely), force it to be smaller or 1
+            steps_per_ctrl = 1
+            self.sim_rollout.dt = self.dt
+        
+        # If sim_rollout.dt is large (60s), force smaller steps for accuracy
+        if self.sim_rollout.dt > 1.0:
+            self.sim_rollout.dt = 0.2
+            steps_per_ctrl = int(self.dt / self.sim_rollout.dt)
 
         for i in range(num_candidates):
             cost = 0.0
@@ -269,6 +294,12 @@ class SingleStackModelController(BaseController):
                 v_lye_k = u_k[1]
                 v_c_k = u_k[2]
                 
+                # Calculate Real Power using CURRENT state (Start of Interval)
+                # To match NMPC behavior which optimizes Power at step k
+                T_s_curr = self.sim_rollout.state[1]
+                _, U_cell, _ = self.sim_rollout._calculate_electrochemical_properties(I_k, T_s_curr)
+                P_real_curr = U_cell * I_k * self.sim_rollout.N_cell
+
                 # Step (multiple small steps)
                 for _ in range(steps_per_ctrl):
                     next_state = self.sim_rollout.step(u_k)
@@ -276,13 +307,9 @@ class SingleStackModelController(BaseController):
                 # State after control interval
                 T_s_next = next_state[1] # T_s is at index 1
                 
-                # Calculate Real Power using NEXT state
-                _, U_cell, _ = self.sim_rollout._calculate_electrochemical_properties(I_k, T_s_next)
-                P_real_next = U_cell * I_k * self.sim_rollout.N_cell
-                
                 # --- Cost Calculation ---
                 # 1. Power Tracking
-                cost += self.lambda_track * ((P_real_next - P_ref_eval[k])/1e6)**2
+                cost += self.lambda_track * ((P_real_curr - P_ref_eval[k])/1e6)**2
                 
                 # 2. Temperature Regulation
                 cost += self.lambda_temp * ((T_s_next - T_ref)**2)
@@ -318,7 +345,10 @@ class SingleStackModelController(BaseController):
         last_action_vec = self._as_last_action_vec(last_action)
         cond_norm = self._prepare_condition(state, P_ref, T_ref, last_action_vec)
         
-        if isinstance(self.scheduler, DDPMScheduler):
+        if self.scheduler is None:
+             # Pure MLP direct prediction
+             samples_norm = self.model(cond_norm)
+        elif isinstance(self.scheduler, DDPMScheduler):
             samples_norm = self.scheduler.sample(self.model, cond_norm, (1, self.action_dim, self.horizon))
         elif isinstance(self.scheduler, FlowMatchingScheduler):
             samples_norm = self.scheduler.sample(self.model, cond_norm, (1, self.action_dim, self.horizon), noise_scale=0.0)

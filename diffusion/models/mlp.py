@@ -96,6 +96,60 @@ class DiffusionMLP(nn.Module):
             
         return output
 
+class PureMLP(nn.Module):
+    """
+    Standard MLP for direct prediction without diffusion/flow matching.
+    Input: Condition (State)
+    Output: Action Sequence
+    """
+    def __init__(
+        self, 
+        action_dim, 
+        obs_dim, 
+        horizon=1,
+        hidden_dim=256, 
+        num_res_blocks=3, 
+        dropout=0.0
+    ):
+        super().__init__()
+        self.action_dim = action_dim
+        self.obs_dim = obs_dim
+        self.horizon = horizon
+        
+        flat_dim = action_dim * horizon
+        
+        # Input projection (Only Condition)
+        self.cond_proj = nn.Linear(obs_dim, hidden_dim)
+        
+        # Main trunk
+        self.blocks = nn.ModuleList([
+            ResidualBlock(hidden_dim, dropout) for _ in range(num_res_blocks)
+        ])
+        
+        # Final output
+        self.final_norm = nn.LayerNorm(hidden_dim)
+        self.output_proj = nn.Linear(hidden_dim, flat_dim)
+
+    def forward(self, cond):
+        """
+        cond: (batch, obs_dim)
+        Returns: (batch, action_dim, horizon)
+        """
+        # Embeddings
+        h = self.cond_proj(cond)
+        
+        # Residual Blocks
+        for block in self.blocks:
+            h = block(h)
+            
+        h = self.final_norm(h)
+        output = self.output_proj(h)
+        
+        # Reshape to (B, C, H)
+        output = output.reshape(output.shape[0], self.action_dim, self.horizon)
+            
+        return output
+
 class FlowMatchingMLP(nn.Module):
     def __init__(
         self, 
