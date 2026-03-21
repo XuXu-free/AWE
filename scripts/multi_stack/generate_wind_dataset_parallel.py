@@ -32,7 +32,7 @@ def load_month_profile(month_file):
 
 
 def run_warmup_phase(sim, controller, profile_first_value, dt_ctrl, horizon, sim_dt, T_ref,
-                     I_prev, v_lye_prev, v_c_prev):
+                     I_prev, v_lye_prev, v_c_prev, month_idx=0):
     """运行warmup阶段，使系统达到稳态"""
     warmup_duration_hours = 4
     warmup_steps = int(warmup_duration_hours * 3600 / dt_ctrl)
@@ -41,8 +41,10 @@ def run_warmup_phase(sim, controller, profile_first_value, dt_ctrl, horizon, sim
     P_warmup_start = 8.0e6
     P_warmup_end = profile_first_value
 
+    print(f"[Month {month_idx:03d}] Running warmup phase ({warmup_steps} steps)...", flush=True)
+
     try:
-        for t_w in range(warmup_steps):
+        for t_w in tqdm(range(warmup_steps), desc=f"Month {month_idx:03d} Warmup", leave=False, position=month_idx):
             current_time = -(warmup_steps - t_w) * dt_ctrl
 
             # Interpolate P_ref
@@ -117,6 +119,8 @@ def process_single_month(args_dict):
     sim_dt = args_dict['sim_dt']
     T_ref = args_dict['T_ref']
     skip_warmup = args_dict.get('skip_warmup', False)
+    max_steps = args_dict.get('max_steps', None)
+    save_interval = args_dict.get('save_interval', None)
 
     month_name = os.path.basename(month_file).replace('wind_power_', '').replace('_1min.csv', '')
     print(f"[Month {month_idx:03d}] Starting {month_name}...")
@@ -126,14 +130,20 @@ def process_single_month(args_dict):
         profile = load_month_profile(month_file)
         total_steps = len(profile) - horizon
 
+        # Apply max_steps limit if specified
+        if max_steps is not None and max_steps > 0:
+            total_steps = min(total_steps, max_steps)
+            print(f"[Month {month_idx:03d}] Limited to {total_steps} steps (max_steps={max_steps})")
+
         if total_steps <= 0:
             print(f"[Month {month_idx:03d}] Profile too short, skipping")
             return False
 
         # Initialize simulator and controller
-        sim = MultiStackSimulator(sim_dt=sim_dt)
+        sim = MultiStackSimulator(dt=sim_dt)
         sim.reset()
 
+        print(f"[Month {month_idx:03d}] Setting up solver...", flush=True)
         controller = MultiStackNMPCController(dt=dt_ctrl, horizon=horizon, dt_sub=sim_dt)
         n_stacks = controller.n_stacks
 
@@ -146,13 +156,15 @@ def process_single_month(args_dict):
         if not skip_warmup:
             I_prev, v_lye_prev, v_c_prev = run_warmup_phase(
                 sim, controller, profile[0], dt_ctrl, horizon, sim_dt, T_ref,
-                I_prev, v_lye_prev, v_c_prev
+                I_prev, v_lye_prev, v_c_prev, month_idx
             )
 
         # Main data generation loop
         data_list = []
+        rows_since_last_save = 0
+        csv_file = os.path.join(output_dir, f"nmpc_dataset_wind_{month_idx:03d}_{timestamp}.csv")
 
-        for t in tqdm(range(total_steps), desc=f"Month {month_idx:03d}", leave=False):
+        for t in tqdm(range(total_steps), desc=f"Month {month_idx:03d}", leave=False, position=month_idx):
             current_state = sim.state.copy()
 
             # Unpack state (13-dim)
@@ -269,18 +281,51 @@ def process_single_month(args_dict):
             I_prev = I_cmd
             v_lye_prev = v_lye_cmd
             v_c_prev = v_c_cmd
+            rows_since_last_save += 1
 
-        # Save to CSV
-        df = pd.DataFrame(data_list)
-        csv_file = os.path.join(output_dir, f"nmpc_dataset_wind_{month_idx:03d}_{timestamp}.csv")
-        df.to_csv(csv_file, index=False)
-        print(f"[Month {month_idx:03d}] Saved: {csv_file} ({len(data_list)} rows)")
+            # Periodic save if save_interval is specified (append mode)
+            if save_interval is not None and save_interval > 0 and rows_since_last_save >= save_interval:
+                if len(data_list) > 0:
+                    df_append = pd.DataFrame(data_list)
+                    # First write creates file with header, subsequent writes append without header
+                    write_header = not os.path.exists(csv_file)
+                    df_append.to_csv(csv_file, mode='a', index=False, header=write_header)
+                    print(f"[Month {month_idx:03d}] Appended {len(data_list)} rows at step {t+1}/{total_steps}")
 
-        # Generate plot
-        try:
-            plot_month_data(df, output_dir, timestamp, month_idx, month_name)
-        except Exception as e:
-            print(f"[Month {month_idx:03d}] Plot generation failed: {e}")
+                    # Generate/overwrite plot with all accumulated data so far
+                    try:
+                        # Read all accumulated data for plotting
+                        df_plot = pd.read_csv(csv_file)
+                        plot_month_data(df_plot, output_dir, timestamp, month_idx, month_name)
+                        print(f"[Month {month_idx:03d}] Updated plot at step {t+1}/{total_steps}")
+                    except Exception as e:
+                        print(f"[Month {month_idx:03d}] Plot update failed at step {t+1}: {e}")
+
+                    # Clear data list and reset counter
+                    data_list = []
+                    rows_since_last_save = 0
+
+        # Save any remaining data to CSV (append mode or single save)
+        if len(data_list) > 0:
+            df_append = pd.DataFrame(data_list)
+            write_header = not os.path.exists(csv_file)
+            df_append.to_csv(csv_file, mode='a', index=False, header=write_header)
+
+        # Final save message and plot
+        if os.path.exists(csv_file):
+            try:
+                df_final = pd.read_csv(csv_file)
+                print(f"[Month {month_idx:03d}] Saved final: {csv_file} ({len(df_final)} rows)")
+
+                # Generate final plot
+                try:
+                    plot_month_data(df_final, output_dir, timestamp, month_idx, month_name)
+                except Exception as e:
+                    print(f"[Month {month_idx:03d}] Final plot generation failed: {e}")
+            except Exception as e:
+                print(f"[Month {month_idx:03d}] Failed to read final CSV: {e}")
+        else:
+            print(f"[Month {month_idx:03d}] No data was saved (empty dataset)")
 
         return True
 
@@ -409,7 +454,7 @@ def main():
         description='并行生成风电数据集 - 多槽版本 - 多月份并行处理'
     )
     parser.add_argument('--max_workers', type=int, default=4,
-                        help='并行worker数量 (默认: 4, 设为0使用CPU核心数)')
+                        help='并行worker数量 (默认: 4, 建议不超过4-6，每个worker需要大量内存)')
     parser.add_argument('--dt_ctrl', type=float, default=60.0,
                         help='控制周期 (秒, 默认: 60)')
     parser.add_argument('--horizon', type=int, default=5,
@@ -424,6 +469,10 @@ def main():
                         help='处理的月份, e.g., "1,2,3" 或 "all" (默认: all)')
     parser.add_argument('--wind_dir', type=str, default=None,
                         help='风电数据目录 (默认: output/power/wind/)')
+    parser.add_argument('--max_steps', type=int, default=None,
+                        help='限制每个文件处理的最大步数 (默认: 不限制，完整处理)')
+    parser.add_argument('--save_interval', type=int, default=None,
+                        help='每隔多少步保存一次数据集和生成图片 (默认: 不保存中间结果)')
 
     args = parser.parse_args()
 
@@ -434,8 +483,13 @@ def main():
     T_ref = args.T_ref
 
     # Determine max workers
+    # Note: Each worker loads a full NMPC controller which consumes significant memory
+    # For multi-stack NMPC, recommend max_workers <= 4-6 depending on available RAM
     if args.max_workers <= 0:
-        max_workers = multiprocessing.cpu_count()
+        cpu_count = multiprocessing.cpu_count()
+        # Limit to 4 or half of CPUs, whichever is smaller, to avoid memory issues
+        max_workers = max(1, min(4, cpu_count // 2))
+        print(f"Auto-selected {max_workers} workers (limited to avoid memory issues)")
     else:
         max_workers = args.max_workers
 
@@ -473,6 +527,10 @@ def main():
     print(f"  NMPC Horizon: {horizon}")
     print(f"  仿真步长: {sim_dt}s")
     print(f"  并行Workers: {max_workers}")
+    if args.max_steps:
+        print(f"  每文件最大步数: {args.max_steps} (~{args.max_steps * dt_ctrl / 3600:.1f}小时)")
+    if args.save_interval:
+        print(f"  定期保存间隔: {args.save_interval}步 (~{args.save_interval * dt_ctrl / 3600:.1f}小时)")
     print(f"  输出目录: {output_dir}")
     print(f"  时间戳: {timestamp}")
     print("=" * 60)
@@ -499,7 +557,9 @@ def main():
             'horizon': horizon,
             'sim_dt': sim_dt,
             'T_ref': T_ref,
-            'skip_warmup': args.skip_warmup
+            'skip_warmup': args.skip_warmup,
+            'max_steps': args.max_steps,
+            'save_interval': args.save_interval
         })
 
     # Run parallel processing
@@ -514,7 +574,7 @@ def main():
             else:
                 failed += 1
     else:
-        # Parallel execution
+        # Parallel execution - 子进程tqdm直接输出到主进程
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             # Submit all tasks
             future_to_month = {
@@ -529,8 +589,10 @@ def main():
                     result = future.result()
                     if result:
                         successful += 1
+                        print(f"[Month {month_idx:03d}] 完成")
                     else:
                         failed += 1
+                        print(f"[Month {month_idx:03d}] 失败")
                 except Exception as e:
                     print(f"[Month {month_idx:03d}] Exception: {e}")
                     failed += 1

@@ -2,6 +2,10 @@
 Generate step signal dataset for multi-stack AWE system.
 Generates NMPC expert trajectories using random step power references and random initial conditions.
 """
+"""
+Generate step signal dataset for multi-stack AWE system.
+Generates NMPC expert trajectories using random step power references and random initial conditions.
+"""
 import os
 import sys
 import numpy as np
@@ -12,6 +16,8 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from tqdm import tqdm
 import argparse
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # Add parent directory to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
@@ -305,15 +311,29 @@ def plot_experiment(df, output_dir, timestamp, exp_id):
     plt.close()
 
 
-def run_step_experiment(exp_id, timestamp, n_steps, dt_ctrl, horizon, sim_dt, T_ref,
-                         output_dir, power_levels, min_duration, max_duration,
-                         max_retries_on_failure=2):
+def run_step_experiment(args_dict):
     """
-    Run a single step experiment.
-    Returns list of data rows or None if failed.
+    Run a single step experiment and save results immediately.
+    Args:
+        args_dict: Dictionary containing all parameters
+    Returns True if successful, False otherwise.
     """
+    exp_id = args_dict['exp_id']
+    timestamp = args_dict['timestamp']
+    n_steps = args_dict['n_steps']
+    dt_ctrl = args_dict['dt_ctrl']
+    horizon = args_dict['horizon']
+    sim_dt = args_dict['sim_dt']
+    T_ref = args_dict['T_ref']
+    output_dir = args_dict['output_dir']
+    power_levels = args_dict['power_levels']
+    min_duration = args_dict['min_duration']
+    max_duration = args_dict['max_duration']
+    max_retries_on_failure = args_dict.get('max_retries', 2)
+    skip_plots = args_dict.get('skip_plots', False)
+
     # Initialize simulator
-    sim = MultiStackSimulator(sim_dt=sim_dt)
+    sim = MultiStackSimulator(dt=sim_dt)
     sim.reset()
 
     # Randomize initial condition (NO warmup - start from random state directly)
@@ -458,7 +478,25 @@ def run_step_experiment(exp_id, timestamp, n_steps, dt_ctrl, horizon, sim_dt, T_
         v_lye_prev = v_lye_cmd
         v_c_prev = v_c_cmd
 
-    return data_list
+    # Save experiment data immediately after completion
+    try:
+        df = pd.DataFrame(data_list)
+        csv_file = os.path.join(output_dir, f"nmpc_dataset_step_{exp_id:03d}_{timestamp}.csv")
+        df.to_csv(csv_file, index=False)
+        print(f"[Exp {exp_id:03d}] Saved data to: {csv_file}")
+
+        # Generate plot if not skipped
+        if not skip_plots:
+            try:
+                plot_experiment(df, output_dir, timestamp, exp_id)
+                print(f"[Exp {exp_id:03d}] Generated plot")
+            except Exception as e:
+                print(f"[Exp {exp_id:03d}] Plot generation failed: {e}")
+
+        return True
+    except Exception as e:
+        print(f"[Exp {exp_id:03d}] Failed to save data: {e}")
+        return False
 
 
 def main():
@@ -486,6 +524,8 @@ def main():
                         help='Max retries per experiment on failure (default: 2)')
     parser.add_argument('--skip_plots', action='store_true',
                         help='Skip plot generation (default: generate plots)')
+    parser.add_argument('--max_workers', type=int, default=4,
+                        help='并行worker数量 (默认: 4, 建议不超过4-6，每个worker需要大量内存)')
     args = parser.parse_args()
 
     # Parse power levels
@@ -501,6 +541,15 @@ def main():
     # Generate unified timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+    # Determine max workers
+    if args.max_workers <= 0:
+        cpu_count = multiprocessing.cpu_count()
+        # Limit to 4 or half of CPUs, whichever is smaller, to avoid memory issues
+        max_workers = max(1, min(4, cpu_count // 2))
+        print(f"Auto-selected {max_workers} workers (limited to avoid memory issues)")
+    else:
+        max_workers = args.max_workers
+
     print("=" * 60)
     print("Step Signal Dataset Generation for Multi-Stack AWE")
     print("=" * 60)
@@ -511,52 +560,63 @@ def main():
     print(f"  NMPC horizon: {args.horizon}")
     print(f"  Power levels: {[f'{p/1e6:.1f}MW' for p in power_levels]}")
     print(f"  Step duration: {args.step_min_duration}-{args.step_max_duration} steps")
+    print(f"  Parallel workers: {max_workers}")
     print(f"  Output directory: {output_dir}")
     print(f"  Timestamp: {timestamp}")
     print("=" * 60)
 
-    # Run experiments
+    # Prepare task arguments
+    task_args = []
+    for exp_id in range(args.n_experiments):
+        task_args.append({
+            'exp_id': exp_id,
+            'timestamp': timestamp,
+            'n_steps': args.n_steps,
+            'dt_ctrl': args.dt_ctrl,
+            'horizon': args.horizon,
+            'sim_dt': args.sim_dt,
+            'T_ref': args.T_ref,
+            'output_dir': output_dir,
+            'power_levels': power_levels,
+            'min_duration': args.step_min_duration,
+            'max_duration': args.step_max_duration,
+            'max_retries': args.max_retries,
+            'skip_plots': args.skip_plots
+        })
+
+    # Run experiments in parallel
     successful_experiments = 0
     failed_experiments = 0
 
-    for exp_id in range(args.n_experiments):
-        print(f"\n[{exp_id + 1}/{args.n_experiments}] Running experiment...")
-
-        # Retry loop for experiment
-        for retry in range(args.max_retries + 1):
-            result = run_step_experiment(
-                exp_id=exp_id,
-                timestamp=timestamp,
-                n_steps=args.n_steps,
-                dt_ctrl=args.dt_ctrl,
-                horizon=args.horizon,
-                sim_dt=args.sim_dt,
-                T_ref=args.T_ref,
-                output_dir=output_dir,
-                power_levels=power_levels,
-                min_duration=args.step_min_duration,
-                max_duration=args.step_max_duration
-            )
-
-            if result is not None:
-                # Save data
-                csv_file = save_experiment_data(result, output_dir, timestamp, exp_id)
-
-                # Generate plot
-                if csv_file and not args.skip_plots:
-                    try:
-                        df = pd.read_csv(csv_file)
-                        plot_experiment(df, output_dir, timestamp, exp_id)
-                    except Exception as e:
-                        print(f"  Plot generation failed: {e}")
-
+    if max_workers == 1:
+        # Sequential execution for debugging
+        for args_dict in task_args:
+            if run_step_experiment(args_dict):
                 successful_experiments += 1
-                break
             else:
-                if retry < args.max_retries:
-                    print(f"  Retrying experiment {exp_id} (attempt {retry + 2}/{args.max_retries + 1})...")
-                else:
-                    print(f"  Experiment {exp_id} failed after all retries, skipping...")
+                failed_experiments += 1
+    else:
+        # Parallel execution
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_exp = {
+                executor.submit(run_step_experiment, args_dict): args_dict['exp_id']
+                for args_dict in task_args
+            }
+
+            # Collect results as they complete
+            for future in as_completed(future_to_exp):
+                exp_id = future_to_exp[future]
+                try:
+                    result = future.result()
+                    if result:
+                        successful_experiments += 1
+                        print(f"[Exp {exp_id:03d}] Completed and saved successfully")
+                    else:
+                        failed_experiments += 1
+                        print(f"[Exp {exp_id:03d}] Failed")
+                except Exception as e:
+                    print(f"[Exp {exp_id:03d}] Exception: {e}")
                     failed_experiments += 1
 
     print("\n" + "=" * 60)

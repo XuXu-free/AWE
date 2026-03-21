@@ -4,7 +4,7 @@ import sys
 import torch
 import numpy as np
 from ..base_controller import BaseController
-from diffusion.models import DiffusionMLP, DiffusionTCN, FlowMatchingTCN, FlowMatchingMLP, PureMLP
+from diffusion.models import DiffusionMLP, DiffusionTCN, FlowMatchingTCN, FlowMatchingMLP
 from diffusion.ddpm import DDPMScheduler
 from diffusion.flow_matching import FlowMatchingScheduler
 from diffusion.hardflow_scheduler import HardFlowScheduler
@@ -108,15 +108,6 @@ class SingleStackModelController(BaseController):
                 levels=4
             ).to(self.device)
             self.scheduler = DDPMScheduler(device=self.device)
-        elif model_type == 'pure_mlp':
-            self.model = PureMLP(
-                action_dim=self.action_dim, 
-                obs_dim=self.obs_dim, 
-                horizon=horizon,
-                hidden_dim=256,
-                num_res_blocks=3
-            ).to(self.device)
-            self.scheduler = None # No scheduler
         else:
             raise ValueError(f"Unknown model_type: {model_type}")
 

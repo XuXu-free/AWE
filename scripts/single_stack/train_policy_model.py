@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 # Add parent directory to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from diffusion.models import DiffusionMLP, DiffusionTCN, FlowMatchingTCN, FlowMatchingMLP, PureMLP
+from diffusion.models import DiffusionMLP, DiffusionTCN, FlowMatchingTCN, FlowMatchingMLP
 from diffusion.ddpm import DDPMScheduler
 from diffusion.flow_matching import FlowMatchingScheduler
 
@@ -178,15 +178,6 @@ def train(args):
             num_res_blocks=3
         )
         noise_scheduler = DDPMScheduler(device=device)
-    elif args.model_type == 'pure_mlp':
-        model = PureMLP(
-            action_dim=dataset.action_dim,
-            obs_dim=dataset.cond_dim,
-            horizon=args.horizon,
-            hidden_dim=256,
-            num_res_blocks=3
-        )
-        noise_scheduler = None # No scheduler for pure MLP
     else:
         raise ValueError(f"Unknown model type: {args.model_type}")
     
@@ -227,17 +218,13 @@ def train(args):
         for cond, action_seq in train_loader:
             cond = cond.to(device)
             action_seq = action_seq.to(device)
-            
-            if args.model_type == 'pure_mlp':
-                # Direct prediction
-                pred_action = model(cond)
-                loss = mse_loss(pred_action, action_seq)
-            elif 'flow' in args.model_type:
+
+            if 'flow' in args.model_type:
                 loss = noise_scheduler.compute_loss(model, action_seq, cond)
             else:
                 timesteps = torch.randint(0, noise_scheduler.num_timesteps, (action_seq.shape[0],), device=device).long()
                 loss = noise_scheduler.p_losses(model, action_seq, timesteps, cond)
-            
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -253,16 +240,13 @@ def train(args):
             for cond, action_seq in val_loader:
                 cond = cond.to(device)
                 action_seq = action_seq.to(device)
-                
-                if args.model_type == 'pure_mlp':
-                    pred_action = model(cond)
-                    loss = mse_loss(pred_action, action_seq)
-                elif 'flow' in args.model_type:
+
+                if 'flow' in args.model_type:
                     loss = noise_scheduler.compute_loss(model, action_seq, cond)
                 else:
                     timesteps = torch.randint(0, noise_scheduler.num_timesteps, (action_seq.shape[0],), device=device).long()
                     loss = noise_scheduler.p_losses(model, action_seq, timesteps, cond)
-                    
+
                 val_loss += loss.item()
                 
         avg_val_loss = val_loss / len(val_loader)
@@ -314,7 +298,7 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--lr', type=float, default=1e-4)
-    parser.add_argument('--model_type', type=str, default='diffusion_tcn', choices=['diffusion_tcn', 'diffusion_mlp', 'flow_tcn', 'flow_mlp', 'pure_mlp'], help='Model type: diffusion_tcn, diffusion_mlp, flow_tcn, flow_mlp, pure_mlp')
+    parser.add_argument('--model_type', type=str, default='diffusion_tcn', choices=['diffusion_tcn', 'diffusion_mlp', 'flow_tcn', 'flow_mlp'], help='Model type: diffusion_tcn, diffusion_mlp, flow_tcn, flow_mlp')
     
     args = parser.parse_args()
     
