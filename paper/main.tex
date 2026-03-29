@@ -53,11 +53,11 @@
 % 主体部分
 \mainmatter
 
-% 正文内容
-\input{contents/intro}
-\input{contents/math_and_citations}
-\input{contents/floats}
-\input{contents/summary}
+% 正文内容 - 按章节组织
+\input{contents/chapter1_introduction}      % 第一章 绪论
+\input{contents/chapter2_overview}          % 第二章 研究概述与技术路线
+\input{contents/chapter3_modeling}          % 第三章 问题建模、仿真与控制器设计
+\input{contents/chapter4_conclusion}        % 第四章 结论与展望
 
 %TC:ignore
 
@@ -71,8 +71,7 @@
 \captionsetup{list=no}
 
 % 附录内容
-\input{contents/app_maxwell_equations}
-\input{contents/app_flow_chart}
+\input{contents/app_params}
 
 % 结尾部分
 \backmatter
@@ -90,8 +89,7 @@
 \input{contents/resume}
 
 % 学士学位论文要求在最后有一个大摘要，单独编页码
-% 如果撰写学士学位论文，请取消下一行的注释
-% \input{contents/digest}
+\input{contents/digest}
 
 %TC:endignore
 

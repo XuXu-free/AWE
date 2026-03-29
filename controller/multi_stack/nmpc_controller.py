@@ -51,7 +51,7 @@ class MultiStackNMPCController(BaseController):
         self.I_min = 0.0
         self.I_max = 7800.0 * 1.2
         # self.I_max = 7800.0
-        self.v_lye_min = 0.0
+        self.v_lye_min = 0.01
         self.v_lye_max = 0.1
         self.v_c_min = 0.0
         self.v_c_max = 1.0
@@ -70,7 +70,7 @@ class MultiStackNMPCController(BaseController):
         # Weights
         # Adjusted for 4 stacks:
         # Power error is sum of 4 stacks.
-        self.lambda_prod = 1.0
+        self.lambda_prod = 1e-6
         self.lambda_track = 1.2 # 1e-6 scaling in cost
         self.lambda_temp = 0.15
         self.lambda_I = 0.0002
@@ -207,10 +207,13 @@ class MultiStackNMPCController(BaseController):
             # 2. Temperature Regulation (All stacks)
             obj += self.lambda_temp * ca.sum1((T_s_k - T_ref_val)**2)
             
-            # 3. H2 Production (Maximize - negative sign for minimization)
-            # H2 production rate: eta * n_cells * I / (2F) for each stack
-            h2_prod_rate = eta * self.n_cells * I_k / (2 * self.F)
-            obj -= self.lambda_prod * self.dt * ca.sum1(h2_prod_rate)
+            # 3. Stack Current Balancing (Inter-stack current equalization)
+            # Minimize differences between stack currents: Σ(I_i - I_j)²
+            current_diff_sum = 0
+            for i in range(self.n_stacks):
+                for j in range(i+1, self.n_stacks):
+                    current_diff_sum += (I_k[i] - I_k[j])**2
+            obj += self.lambda_prod * current_diff_sum
 
             # 4. Smoothness & Min Effort
             # I: Penalize rate of change (adjacent steps)

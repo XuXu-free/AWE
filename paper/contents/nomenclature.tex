@@ -1,63 +1,68 @@
-% !TEX root = ../main.tex
+% !TeX root = ../main.tex
 
 \begin{nomenclature}
-\label{chap:symb}
 
-\begin{longtable}{rl}
-  $\epsilon$  & 介电常数  \\  
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
-  $\epsilon$  & 介电常数  \\
-  $\mu$       & 磁导率    \\
+\begin{longtable}{r l}
+  \multicolumn{2}{l}{\textbf{符号与缩写}} \\[0.5em]
+
+  % 基本物理量
+  $T$ & 温度 [K] \\
+  $P$ & 功率 [W] \\
+  $I$ & 电流 [A] \\
+  $U$ & 电压 [V] \\
+  $n$ & 物质的量 [mol] \\
+  $V$ & 体积 [$\mathrm{m}^3$] \\
+  $v$ & 体积流量 [$\mathrm{m}^3/\mathrm{s}$] \\
+
+  \multicolumn{2}{l}{} \\[-0.3em]
+  \multicolumn{2}{l}{\textbf{状态变量}} \\[0.3em]
+  $T_{s,in}$ & 换热器碱液出口温度 [K] \\
+  $T_{s,i}$ & 第$i$个电解槽温度 [K], $i=1,2,3,4$ \\
+  $T_{sep}$ & 分离器温度 [K] \\
+  $T_{c,out}$ & 冷却水出口温度 [K] \\
+  $n_{H_2,an,i}$ & 第$i$个阳极室溶解氢气摩尔数 [mol] \\
+  $n_{liq}$ & 分离器液相氢气摩尔数 [mol] \\
+  $n_{gas}$ & 分离器气相氢气摩尔数 [mol] \\
+
+  \multicolumn{2}{l}{} \\[-0.3em]
+  \multicolumn{2}{l}{\textbf{控制输入}} \\[0.3em]
+  $I_i$ & 第$i$个电解槽电流 [A] \\
+  $v_{lye,i}$ & 第$i$个电解槽碱液流量 [$\mathrm{m}^3/\mathrm{s}$] \\
+  $v_c$ & 冷却水流量 [$\mathrm{m}^3/\mathrm{s}$] \\
+
+  \multicolumn{2}{l}{} \\[-0.3em]
+  \multicolumn{2}{l}{\textbf{系统参数}} \\[0.3em]
+  $N$ & 电解槽数量 (本研究$N=4$) \\
+  $N_{cell}$ & 单槽电芯数 (本研究$N_{cell}=368$) \\
+  $A_{cell}$ & 电芯面积 [$\mathrm{m}^2$] \\
+  $P_{sys}$ & 系统压力 [Pa] \\
+  $F$ & 法拉第常数 [C/mol] \\
+  $R$ & 理想气体常数 [J/(mol$\cdot$K)] \\
+
+  \multicolumn{2}{l}{} \\[-0.3em]
+  \multicolumn{2}{l}{\textbf{评价指标}} \\[0.3em]
+  HTO & 氢气至氧侧传输量百分比 (Hydrogen Transport to Oxygen) [\%] \\
+  RMSE & 均方根误差 (Root Mean Square Error) \\
+  MAE & 平均绝对误差 (Mean Absolute Error) \\
+
+  \multicolumn{2}{l}{} \\[-0.3em]
+  \multicolumn{2}{l}{\textbf{方法与算法}} \\[0.3em]
+  AWE & 碱性电解水 (Alkaline Water Electrolysis) \\
+  NMPC & 非线性模型预测控制 (Nonlinear MPC) \\
+  DDPM & 去噪扩散概率模型 (Denoising Diffusion Probabilistic Model) \\
+  TCN & 时序卷积网络 (Temporal Convolutional Network) \\
+  MLP & 多层感知机 (Multi-Layer Perceptron) \\
+  CBF & 控制障碍函数 (Control Barrier Function) \\
+
+  \multicolumn{2}{l}{} \\[-0.3em]
+  \multicolumn{2}{l}{\textbf{下标与上标}} \\[0.3em]
+  $ref$ & 参考值 \\
+  $min/max$ & 最小/最大值 \\
+  $in/out$ & 入口/出口 \\
+  $lye$ & 碱液 \\
+  $cw$ & 冷却水 \\
+  $amb$ & 环境 \\
+
 \end{longtable}
 
 \end{nomenclature}

@@ -1,0 +1,27 @@
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.loa
+*.synctex.gz
+*.xdv
+*.fls
+*.fdb_latexmk
+*.bbl-SAVE-ERROR
+*.bib-SAVE-ERROR
+*.run.xml
+
+# PDF output (optional: comment out if you want to track the final PDF)
+# *.pdf
+
+# Editor temp files
+*.swp
+*.bak
+*~
+.vscode/
+.idea/

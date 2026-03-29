@@ -42,7 +42,7 @@ class SingleStackModelController(BaseController):
         # Constraints (from NMPC)
         self.I_min = 0.0
         self.I_max = 7800.0 * 1.2
-        self.v_lye_min = 0.0
+        self.v_lye_min = 0.01
         self.v_lye_max = 0.1
         self.v_c_min = 0.0
         self.v_c_max = 1.0

@@ -1,29 +1,104 @@
-\contentsline {chapter}{\numberline {第 1 章}简介}{1}{chapter.1}%
-\contentsline {section}{\numberline {1.1}二级标题}{1}{section.1.1}%
-\contentsline {subsection}{\numberline {1.1.1}三级标题}{1}{subsection.1.1.1}%
-\contentsline {subsubsection}{\numberline {1.1.1.1}四级标题}{1}{subsubsection.1.1.1.1}%
-\contentsline {section}{\numberline {1.2}脚注}{1}{section.1.2}%
-\contentsline {section}{\numberline {1.3}字体}{1}{section.1.3}%
-\contentsline {chapter}{\numberline {第 2 章}数学与引用文献的标注}{5}{chapter.2}%
-\contentsline {section}{\numberline {2.1}数学}{5}{section.2.1}%
-\contentsline {subsection}{\numberline {2.1.1}数字和单位}{5}{subsection.2.1.1}%
-\contentsline {subsection}{\numberline {2.1.2}数学符号和公式}{5}{subsection.2.1.2}%
-\contentsline {subsection}{\numberline {2.1.3}定理环境}{6}{subsection.2.1.3}%
-\contentsline {section}{\numberline {2.2}引用文献的标注}{7}{section.2.2}%
-\contentsline {chapter}{\numberline {第 3 章}浮动体}{9}{chapter.3}%
-\contentsline {section}{\numberline {3.1}插图}{9}{section.3.1}%
-\contentsline {subsection}{\numberline {3.1.1}单个图形}{9}{subsection.3.1.1}%
-\contentsline {subsection}{\numberline {3.1.2}多个图形}{10}{subsection.3.1.2}%
-\contentsline {section}{\numberline {3.2}表格}{11}{section.3.2}%
-\contentsline {subsection}{\numberline {3.2.1}基本表格}{11}{subsection.3.2.1}%
-\contentsline {subsection}{\numberline {3.2.2}复杂表格}{11}{subsection.3.2.2}%
-\contentsline {section}{\numberline {3.3}算法环境}{13}{section.3.3}%
-\contentsline {section}{\numberline {3.4}代码环境}{13}{section.3.4}%
-\contentsline {chapter}{\numberline {第 4 章}全文总结}{15}{chapter.4}%
-\contentsline {chapter}{参考文献}{17}{chapter*.26}%
-\contentsline {chapter}{\numberline {附录 A}Maxwell Equations}{19}{appendix.A}%
-\contentsline {chapter}{\numberline {附录 B}绘制流程图}{21}{appendix.B}%
-\contentsline {chapter}{致\quad 谢}{23}{section*.28}%
-\contentsline {chapter}{学术论文和科研成果目录}{25}{section*.30}%
-\contentsline {chapter}{个人简历}{27}{section*.34}%
+\contentsline {chapter}{\numberline {第 1 章}绪论}{1}{chapter.1}%
+\contentsline {section}{\numberline {1.1}研究背景与意义}{1}{section.1.1}%
+\contentsline {subsection}{\numberline {1.1.1}能源转型与绿氢战略}{1}{subsection.1.1.1}%
+\contentsline {subsection}{\numberline {1.1.2}波动性电源适配挑战}{1}{subsection.1.1.2}%
+\contentsline {subsection}{\numberline {1.1.3}多槽协调控制难点}{1}{subsection.1.1.3}%
+\contentsline {section}{\numberline {1.2}国内外研究现状}{2}{section.1.2}%
+\contentsline {subsection}{\numberline {1.2.1}传统控制方法}{2}{subsection.1.2.1}%
+\contentsline {subsection}{\numberline {1.2.2}AI驱动控制方法}{2}{subsection.1.2.2}%
+\contentsline {subsection}{\numberline {1.2.3}生成模型方法}{2}{subsection.1.2.3}%
+\contentsline {section}{\numberline {1.3}研究内容与主要贡献}{2}{section.1.3}%
+\contentsline {subsection}{\numberline {1.3.1}研究内容}{2}{subsection.1.3.1}%
+\contentsline {subsection}{\numberline {1.3.2}主要贡献}{3}{subsection.1.3.2}%
+\contentsline {section}{\numberline {1.4}论文组织结构}{3}{section.1.4}%
+\contentsline {chapter}{\numberline {第 2 章}研究概述与技术路线}{5}{chapter.2}%
+\contentsline {section}{\numberline {2.1}系统整体架构}{5}{section.2.1}%
+\contentsline {subsection}{\numberline {2.1.1}被控对象描述}{5}{subsection.2.1.1}%
+\contentsline {subsection}{\numberline {2.1.2}控制目标}{7}{subsection.2.1.2}%
+\contentsline {section}{\numberline {2.2}技术路线对比分析}{7}{section.2.2}%
+\contentsline {subsection}{\numberline {2.2.1}不同控制方法对比}{7}{subsection.2.2.1}%
+\contentsline {subsection}{\numberline {2.2.2}扩散模型与流匹配的理论背景}{7}{subsection.2.2.2}%
+\contentsline {subsection}{\numberline {2.2.3}技术路线选择}{9}{subsection.2.2.3}%
+\contentsline {section}{\numberline {2.3}研究框架与技术路线}{9}{section.2.3}%
+\contentsline {subsection}{\numberline {2.3.1}TCN Diffusion控制框架}{9}{subsection.2.3.1}%
+\contentsline {subsection}{\numberline {2.3.2}整体研究框架}{10}{subsection.2.3.2}%
+\contentsline {subsection}{\numberline {2.3.3}详细技术路线}{10}{subsection.2.3.3}%
+\contentsline {section}{\numberline {2.4}仿真平台架构}{11}{section.2.4}%
+\contentsline {subsection}{\numberline {2.4.1}软件框架}{11}{subsection.2.4.1}%
+\contentsline {subsection}{\numberline {2.4.2}多时间尺度处理}{11}{subsection.2.4.2}%
+\contentsline {subsection}{\numberline {2.4.3}实验数据}{11}{subsection.2.4.3}%
+\contentsline {chapter}{\numberline {第 3 章}问题建模、仿真与控制器设计}{13}{chapter.3}%
+\contentsline {section}{\numberline {3.1}单槽AWE系统建模}{13}{section.3.1}%
+\contentsline {subsection}{\numberline {3.1.1}单槽电化学模型}{13}{subsection.3.1.1}%
+\contentsline {subsubsection}{\numberline {3.1.1.1}电堆电压模型}{13}{subsubsection.3.1.1.1}%
+\contentsline {subsubsection}{\numberline {3.1.1.2}法拉第效率模型}{13}{subsubsection.3.1.1.2}%
+\contentsline {subsubsection}{\numberline {3.1.1.3}产热功率与氢气产率}{14}{subsubsection.3.1.1.3}%
+\contentsline {subsection}{\numberline {3.1.2}单槽热力学模型}{14}{subsection.3.1.2}%
+\contentsline {subsubsection}{\numberline {3.1.2.1}电堆热平衡}{14}{subsubsection.3.1.2.1}%
+\contentsline {subsubsection}{\numberline {3.1.2.2}换热器与冷却系统}{15}{subsubsection.3.1.2.2}%
+\contentsline {subsubsection}{\numberline {3.1.2.3}分离器热力学}{15}{subsubsection.3.1.2.3}%
+\contentsline {subsection}{\numberline {3.1.3}单槽氢气传输与HTO模型}{16}{subsection.3.1.3}%
+\contentsline {subsubsection}{\numberline {3.1.3.1}氢气溶解度}{16}{subsubsection.3.1.3.1}%
+\contentsline {subsubsection}{\numberline {3.1.3.2}阳极室氢气动态}{16}{subsubsection.3.1.3.2}%
+\contentsline {subsubsection}{\numberline {3.1.3.3}分离器氢气动态}{17}{subsubsection.3.1.3.3}%
+\contentsline {subsubsection}{\numberline {3.1.3.4}HTO计算}{17}{subsubsection.3.1.3.4}%
+\contentsline {subsubsection}{\numberline {3.1.3.5}单槽状态空间}{17}{subsubsection.3.1.3.5}%
+\contentsline {section}{\numberline {3.2}多槽耦合系统建模}{18}{section.3.2}%
+\contentsline {subsection}{\numberline {3.2.1}系统状态与控制输入}{18}{subsection.3.2.1}%
+\contentsline {subsection}{\numberline {3.2.2}多槽耦合热力学模型}{18}{subsection.3.2.2}%
+\contentsline {subsubsection}{\numberline {3.2.2.1}换热器耦合模型}{18}{subsubsection.3.2.2.1}%
+\contentsline {subsubsection}{\numberline {3.2.2.2}分离器热力学耦合}{18}{subsubsection.3.2.2.2}%
+\contentsline {subsection}{\numberline {3.2.3}多槽氢气传输与HTO模型}{19}{subsection.3.2.3}%
+\contentsline {subsubsection}{\numberline {3.2.3.1}各槽阳极室动态}{19}{subsubsection.3.2.3.1}%
+\contentsline {subsubsection}{\numberline {3.2.3.2}共用分离器动态}{19}{subsubsection.3.2.3.2}%
+\contentsline {subsubsection}{\numberline {3.2.3.3}系统整体HTO计算}{19}{subsubsection.3.2.3.3}%
+\contentsline {subsection}{\numberline {3.2.4}$N$槽耦合特性总结}{19}{subsection.3.2.4}%
+\contentsline {subsection}{\numberline {3.2.5}本文实验系统：四槽特例}{19}{subsection.3.2.5}%
+\contentsline {section}{\numberline {3.3}NMPC基线设计}{20}{section.3.3}%
+\contentsline {subsection}{\numberline {3.3.1}双层时间尺度建模}{20}{subsection.3.3.1}%
+\contentsline {subsection}{\numberline {3.3.2}系统动力学离散化}{20}{subsection.3.3.2}%
+\contentsline {subsection}{\numberline {3.3.3}NMPC优化问题建模}{21}{subsection.3.3.3}%
+\contentsline {subsection}{\numberline {3.3.4}约束条件}{22}{subsection.3.3.4}%
+\contentsline {subsection}{\numberline {3.3.5}CasADi/IPOPT实现}{22}{subsection.3.3.5}%
+\contentsline {subsection}{\numberline {3.3.6}局限性分析}{23}{subsection.3.3.6}%
+\contentsline {section}{\numberline {3.4}生成模型策略设计}{23}{section.3.4}%
+\contentsline {subsection}{\numberline {3.4.1}扩散模型策略（Diffusion Policy）}{23}{subsection.3.4.1}%
+\contentsline {subsubsection}{\numberline {3.4.1.1}DDPM基本原理}{23}{subsubsection.3.4.1.1}%
+\contentsline {subsection}{\numberline {3.4.2}流匹配策略（Flow Matching）}{25}{subsection.3.4.2}%
+\contentsline {subsubsection}{\numberline {3.4.2.1}连续归一化流}{25}{subsubsection.3.4.2.1}%
+\contentsline {subsubsection}{\numberline {3.4.2.2}推理采样}{25}{subsubsection.3.4.2.2}%
+\contentsline {subsection}{\numberline {3.4.3}网络架构}{25}{subsection.3.4.3}%
+\contentsline {subsubsection}{\numberline {3.4.3.1}时序卷积网络（TCN）}{25}{subsubsection.3.4.3.1}%
+\contentsline {subsubsection}{\numberline {3.4.3.2}多层感知机（MLP）}{27}{subsubsection.3.4.3.2}%
+\contentsline {subsection}{\numberline {3.4.4}成本加权动作选择}{28}{subsection.3.4.4}%
+\contentsline {section}{\numberline {3.5}基于CBF的安全增强}{28}{section.3.5}%
+\contentsline {subsection}{\numberline {3.5.1}控制屏障函数基础}{28}{subsection.3.5.1}%
+\contentsline {subsection}{\numberline {3.5.2}AWE系统约束分类}{28}{subsection.3.5.2}%
+\contentsline {subsection}{\numberline {3.5.3}QP投影层}{29}{subsection.3.5.3}%
+\contentsline {section}{\numberline {3.6}实验验证与结果分析}{29}{section.3.6}%
+\contentsline {subsection}{\numberline {3.6.1}实验设置}{29}{subsection.3.6.1}%
+\contentsline {subsubsection}{\numberline {3.6.1.1}实验对象}{29}{subsubsection.3.6.1.1}%
+\contentsline {subsubsection}{\numberline {3.6.1.2}硬件与软件环境}{29}{subsubsection.3.6.1.2}%
+\contentsline {subsubsection}{\numberline {3.6.1.3}评价指标}{29}{subsubsection.3.6.1.3}%
+\contentsline {subsection}{\numberline {3.6.2}闭环仿真结果}{30}{subsection.3.6.2}%
+\contentsline {subsubsection}{\numberline {3.6.2.1}功率跟踪性能}{30}{subsubsection.3.6.2.1}%
+\contentsline {subsubsection}{\numberline {3.6.2.2}安全性分析}{30}{subsubsection.3.6.2.2}%
+\contentsline {subsection}{\numberline {3.6.3}消融实验}{30}{subsection.3.6.3}%
+\contentsline {subsubsection}{\numberline {3.6.3.1}模型架构对比}{30}{subsubsection.3.6.3.1}%
+\contentsline {subsubsection}{\numberline {3.6.3.2}采样数量影响}{30}{subsubsection.3.6.3.2}%
+\contentsline {subsubsection}{\numberline {3.6.3.3}CBF作用验证}{30}{subsubsection.3.6.3.3}%
+\contentsline {chapter}{\numberline {第 4 章}结论与展望}{31}{chapter.4}%
+\contentsline {section}{\numberline {4.1}主要结论}{31}{section.4.1}%
+\contentsline {subsection}{\numberline {4.1.1}性能总结}{31}{subsection.4.1.1}%
+\contentsline {subsection}{\numberline {4.1.2}方法对比总结}{31}{subsection.4.1.2}%
+\contentsline {section}{\numberline {4.2}创新点}{32}{section.4.2}%
+\contentsline {section}{\numberline {4.3}局限性与未来工作}{32}{section.4.3}%
+\contentsline {subsection}{\numberline {4.3.1}研究局限性}{32}{subsection.4.3.1}%
+\contentsline {subsection}{\numberline {4.3.2}未来研究方向}{32}{subsection.4.3.2}%
+\contentsline {section}{\numberline {4.4}总结}{33}{section.4.4}%
+\contentsline {chapter}{\numberline {附录 A}Maxwell Equations}{35}{appendix.A}%
+\contentsline {chapter}{\numberline {附录 B}绘制流程图}{37}{appendix.B}%
+\contentsline {chapter}{致\quad 谢}{39}{section*.33}%
+\contentsline {chapter}{学术论文和科研成果目录}{41}{section*.35}%
+\contentsline {chapter}{个人简历}{43}{section*.39}%
 \contentsfinish 

@@ -16,26 +16,26 @@ except ImportError:
     from plant.multi_stack_simulator import MultiStackSimulator
 
 class MultiStackModelController(BaseController):
-    def __init__(self, dt=60.0, horizon=5, model_type='tcn', model_path=None, stats_path=r'd:\Projects\AWE\output\multi_stack\diffusion_stats.npz'):
+    def __init__(self, dt=60.0, horizon=5, model_type='tcn', model_path=None, stats_path=None):
         super().__init__(dt)
         self.horizon = horizon
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        
+
         # Weights for Cost Function (Matched to NMPC)
         self.lambda_prod = 1.0
-        self.lambda_track = 1.2 
+        self.lambda_track = 1.2
         self.lambda_temp = 0.15
         self.lambda_I = 0.0002
         self.lambda_lye = 25000.0
         self.lambda_c = 0.5
-        
-        
+
         # Simulator for Rollout
         self.sim_rollout = MultiStackSimulator(dt=self.dt)
-        
-        
-        
+
         # Normalization Parameters
+        if stats_path is None:
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            stats_path = os.path.join(base_dir, 'output', 'multi_stack', 'diffusion_stats.npz')
         self._load_norm_params(stats_path)
         
         
@@ -45,7 +45,7 @@ class MultiStackModelController(BaseController):
         # Constraints (from NMPC)
         self.I_min = 0.0
         self.I_max = 7500.0
-        self.v_lye_min = 0.0
+        self.v_lye_min = 0.01
         self.v_lye_max = 0.1
         self.v_c_min = 0.0
         self.v_c_max = 1.0
@@ -67,7 +67,8 @@ class MultiStackModelController(BaseController):
     def _load_model(self, model_type, model_path, horizon):
         # Default model path based on type if not provided
         if model_path is None:
-            model_path = r'd:\Projects\AWE\output\multi_stack\best_diffusion_policy_model_{}.pth'.format(model_type)
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            model_path = os.path.join(base_dir, 'output', 'multi_stack', f'best_diffusion_policy_model_{model_type}.pth')
       
         print(f"Loading model from: {model_path}")
         if model_type == 'diffusion_mlp':
@@ -403,64 +404,3 @@ class MultiStackModelController(BaseController):
         action_seq = action.squeeze(0).permute(1, 0).cpu().numpy()
         return action_seq
 
-from barriernet.awe_barrier_net import AWEBarrierNet
-
-class MultiStackModelCBFController(MultiStackModelController):
-    def __init__(self, dt=60.0, horizon=5, model_type='tcn', model_path=None, stats_path=r'd:\Projects\AWE\output\multi_stack\diffusion_stats.npz'):
-        super().__init__(dt, horizon, model_type, model_path, stats_path)
-        
-        # Initialize CBF Layer
-        # Define dummy mean/std as they are not used in the explicit physics-based dcbf
-        dummy_mean = np.zeros(13)
-        dummy_std = np.ones(13)
-        
-        self.cbf_layer = AWEBarrierNet(
-            n_features=13, # State dim
-            n_hidden1=32, # Dummy
-            n_hidden21=32, # Dummy
-            n_hidden22=32, # Dummy
-            n_cls=9, # Control dim
-            mean=dummy_mean,
-            std=dummy_std,
-            device=self.device,
-            u_min=self.action_min, 
-            u_max=self.action_max
-        ).to(self.device)
-        
-        # Tune CBF parameters for dt=60s
-        # Large gamma allows fast approach to boundary, which is dangerous with large timesteps (overshoot).
-        # Small gamma forces slow approach.
-        # Recommended: gamma ~ alpha / dt, where alpha \in (0, 1]
-        # For dt=60, gamma=0.01 implies alpha=0.6, meaning we can close 60% of the gap in one step.
-        self.cbf_layer.gamma_T = 0.01
-        self.cbf_layer.gamma_HTO = 0.01
-        # Voltage and Power are relative degree 0 (instantaneous), so gamma doesn't apply in the same way 
-        # (the code implementation for them is effectively deadbeat/projection), but we leave them as is.
-
-    def get_action(self, state, P_ref, T_ref, last_action):
-        # 1. Get Nominal Action from Model Controller
-        I_cmd, v_lye_cmd, v_c_cmd = super().get_action(state, P_ref, T_ref, last_action)
-        
-        # 2. Prepare for CBF
-        # Construct u_nom tensor (Batch=1, 9)
-        u_nom_np = np.concatenate([I_cmd, v_lye_cmd, [v_c_cmd]])
-        u_nom = torch.FloatTensor(u_nom_np).to(self.device).unsqueeze(0)
-        
-        # Construct state tensor (Batch=1, 13)
-        # state is [T_s_in, T_s1...4, T_sep, T_c_out, n_H2_an1...4, n_liq, n_gas]
-        x = torch.FloatTensor(state).to(self.device).unsqueeze(0)
-        
-        # 3. Apply CBF
-        # cbf_params is unused in explicit mode, pass dummy
-        cbf_params = torch.zeros(1, 2).to(self.device) 
-        
-        u_safe = self.cbf_layer.dcbf(x, u_nom, cbf_params, sgn=1)
-        
-        # 4. Unpack
-        u_safe_np = u_safe.detach().cpu().numpy().squeeze(0)
-        
-        I_cmd_safe = u_safe_np[0:4]
-        v_lye_cmd_safe = u_safe_np[4:8]
-        v_c_cmd_safe = u_safe_np[8]
-        
-        return I_cmd_safe, v_lye_cmd_safe, v_c_cmd_safe

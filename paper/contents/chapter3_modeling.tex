@@ -1,0 +1,1221 @@
+% !TeX root = ../main.tex
+
+\chapter{问题建模、仿真与控制器设计}
+
+\section{单槽AWE系统建模}
+
+单槽AWE系统是构成多槽系统的基本单元。本节建立单槽系统的电化学、热力学和氢气传输模型，为后续多槽耦合建模奠定基础。
+本章所涉及的模型参数与控制器参数取值统一汇总于附录~\ref{app:params}。
+
+\subsection{单槽电化学模型}
+
+\subsubsection{电解槽电压模型}
+
+单电芯电压由可逆电压、欧姆过电位和活化过电位组成：
+\begin{equation}
+  U_{cell} = U_{rev} + V_{ohm} + V_{act}
+\end{equation}
+
+可逆电压为$U_{rev}$。欧姆过电位：
+\begin{equation}
+  V_{ohm} = R_{ohm} \cdot I = (r_1 + r_2 \cdot T_s + r_3 \cdot P_{sys}) \cdot I
+\end{equation}
+
+其中$r_1,r_2,r_3$为欧姆过电位模型参数，$P_{sys}$为系统压力。
+
+活化过电位采用对数形式：
+\begin{equation}
+  V_{act} = s \cdot \ln(\max(t_{act} \cdot I + 1, 10^{-9}))
+\end{equation}
+
+其中$t_{act} = t_1 + t_2/T_C + t_3/T_C^2$，$T_C = T_s - 273.15$为摄氏温度。
+
+\subsubsection{法拉第效率模型}
+
+法拉第效率采用有理函数形式：
+\begin{equation}
+  \eta_F = \frac{I^2}{f_1 + I^2} \cdot f_2
+\end{equation}
+
+上述公式中的参数定义如下：
+\begin{align}
+  f_1 &= 50 + 2.5 \cdot T_C \\
+  f_2 &= 0.92 - 6.25 \times 10^{-6} \cdot T_C
+\end{align}
+
+该模型反映了低电流区法拉第效率较低（寄生反应占主导），高电流区趋近于极限值$f_2$的特性。
+
+\subsubsection{产热功率与氢气产率}
+
+电解槽产热功率可表示为：
+\begin{equation}
+  Q_{ele} = N_{cell} \cdot I \cdot (U_{cell} - \eta_F \cdot U_{th})
+\end{equation}
+
+其中$U_{th}$为热中性电压，$N_{cell}$为单槽电芯数。
+
+氢气产生速率满足以下关系：
+\begin{equation}
+  \dot{n}_{H_2,prod} = \frac{\eta_F \cdot I \cdot N_{cell}}{2F}
+\end{equation}
+
+氧气产生速率（化学计量比2:1）：
+\begin{equation}
+  \dot{n}_{O_2,prod} = \frac{\eta_F \cdot I \cdot N_{cell}}{4F}
+\end{equation}
+
+其中$F$为法拉第常数。
+
+\subsection{单槽热力学模型}
+
+\subsubsection{电解槽热平衡}
+
+单个电解槽的温度动态由热平衡方程描述：
+\begin{equation}
+  C_s \frac{dT_s}{dt} = Q_{ele} - Q_{diss} - Q_{flow}
+\end{equation}
+
+其中热耗散包括对流和辐射两部分：
+\begin{align}
+  Q_{conv} &= \sigma_s \cdot (T_s - T_{am}) \\
+  Q_{rad} &= \epsilon_s \cdot \sigma_b \cdot A_{stack} \cdot (T_s^4 - T_{am}^4) \\
+  Q_{diss} &= Q_{conv} + Q_{rad}
+\end{align}
+
+碱液对流带走的热量：
+\begin{equation}
+  Q_{flow} = c_{lye} \cdot \rho_{lye} \cdot v_{lye} \cdot (T_s - T_{s,in})
+\end{equation}
+
+其中$c_{lye}$为碱液比热容，$\rho_{lye}$为碱液密度。
+
+\subsubsection{换热器与冷却系统}
+
+换热器的传热计算基于对数平均温差（LMTD）方法：
+\begin{equation}
+  Q_{hx} = k_{he} \cdot A_{he} \cdot LMTD
+\end{equation}
+
+其中对数平均温差定义为：
+\begin{equation}
+  LMTD = \begin{cases}
+    \Delta T_1, & |\Delta T_1 - \Delta T_2| < 10^{-5} \\
+    0, & \Delta T_1 \cdot \Delta T_2 \leq 0 \\
+    \frac{\Delta T_1 - \Delta T_2}{\ln(\Delta T_1 / \Delta T_2)}, & \text{其他}
+  \end{cases}
+\end{equation}
+
+其中$\Delta T_1 = T_{s,in} - T_{c,out}$，$\Delta T_2 = T_{sep} - T_{c,in}$。
+
+换热器碱液出口温度动态：
+\begin{equation}
+  C_{he} \frac{dT_{s,in}}{dt} = c_{lye} \cdot \rho_{lye} \cdot v_{lye} \cdot (T_{sep} - T_{s,in}) - Q_{hx}
+\end{equation}
+
+冷却水出口温度动态：
+\begin{equation}
+  C_c \frac{dT_{c,out}}{dt} = c_{cw} \cdot \rho_{cw} \cdot v_c \cdot (T_{c,in} - T_{c,out}) + Q_{hx}
+\end{equation}
+
+\subsubsection{分离器热力学}
+
+分离器温度动态方程为：
+\begin{equation}
+  C_{sep} \frac{dT_{sep}}{dt} = 0.5 \cdot c_{lye} \cdot \rho_{lye} \cdot v_{lye} \cdot (T_{s} - T_{sep}) - Q_{sep,diss}
+\end{equation}
+
+其中分离器热耗散为：
+\begin{align}
+  Q_{sep,conv} &= \sigma_{sep} \cdot (T_{sep} - T_{am}) \\
+  Q_{sep,rad} &= \epsilon_{sep} \cdot \sigma_b \cdot A_{sep} \cdot (T_{sep}^4 - T_{am}^4) \\
+  Q_{sep,diss} &= Q_{sep,conv} + Q_{sep,rad}
+\end{align}
+
+\subsection{单槽氢气传输与HTO模型}
+
+\subsubsection{氢气溶解度}
+
+氢气在碱液中的溶解度采用Secchenov方程结合Henry定律计算：
+\begin{equation}
+  S_{H_2,lye} = \frac{S_{H_2,H_2O}}{10^{K_{H_2} \cdot w_{lye}}}
+\end{equation}
+
+其中氢气在纯水中的溶解度：
+\begin{equation}
+  S_{H_2,H_2O} = \frac{\rho_{H_2O} \cdot P_{sys}}{M_{H_2O} \cdot p_{atm} \cdot H_{H_2}}
+\end{equation}
+
+\subsubsection{阳极室氢气动态}
+
+阳极室溶解氢气摩尔数$n_{H_2,an}$的动态由三部分输入和一部分输出组成：
+
+\textbf{输入1：碱液循环带入}
+\begin{equation}
+  \dot{n}_{H_2,lye} = \frac{S_{H_2,lye} \cdot \rho_{lye} \cdot v_{lye}}{4}
+\end{equation}
+
+\textbf{输入2：跨膜扩散（菲克定律）}
+\begin{equation}
+  \dot{n}_{H_2,diff} = \frac{A_{cell} \cdot N_{cell} \cdot D_{eff} \cdot S_{H_2,lye} \cdot P_{sys}}{\delta}
+\end{equation}
+
+\textbf{输入3：压力差对流（达西定律）}
+\begin{equation}
+  \dot{n}_{H_2,conv} = A_{cell} \cdot N_{cell} \cdot \frac{K_{eff}}{\mu_{lye}} \cdot S_{H_2,lye} \cdot \rho_{lye} \cdot \frac{\Delta P}{\delta}
+\end{equation}
+
+总氢气输入速率可写为：
+\begin{equation}
+  \dot{n}_{H_2,im} = \dot{n}_{H_2,lye} + \dot{n}_{H_2,diff} + \dot{n}_{H_2,conv}
+\end{equation}
+
+\textbf{输出：向分离器传输}
+
+假设阳极室内充分混合，氢气向分离器的传输速率：
+\begin{equation}
+  \dot{n}_{H_2,out} = \frac{n_{H_2,an} \cdot v_{lye}}{2 \cdot V_{an}}
+\end{equation}
+
+其中$V_{an}$为阳极室碱液体积。
+
+阳极室氢气动态方程：
+\begin{equation}
+  \frac{dn_{H_2,an}}{dt} = \dot{n}_{H_2,im} - \dot{n}_{H_2,out}
+\end{equation}
+
+\subsubsection{分离器氢气动态}
+
+分离器液相氢气摩尔数$n_{liq}$动态：
+\begin{equation}
+  \frac{dn_{liq}}{dt} = \dot{n}_{H_2,out} - \frac{n_{liq}}{\tau_{sep}}
+\end{equation}
+
+其中$\tau_{sep}$为气液分离时间常数。
+
+分离器气相氢气摩尔数$n_{gas}$动态：
+\begin{equation}
+  \frac{dn_{gas}}{dt} = \frac{n_{liq}}{\tau_{sep}} - \dot{n}_{H_2,gas,out}
+\end{equation}
+
+氢气随氧气流流出速率：
+\begin{equation}
+  \dot{n}_{H_2,gas,out} = \frac{R \cdot T_{sep} \cdot n_{gas} \cdot \dot{n}_{O_2,prod}}{P_{sys} \cdot V_{sep,gas}}
+\end{equation}
+
+其中$V_{sep,gas}$为分离器气相体积，$V_{sep}$为分离器总体积。
+
+\subsubsection{HTO计算}
+
+氢气至氧侧传输量（HTO）定义为气相中氢气摩尔分数：
+\begin{equation}
+  HTO = \frac{n_{gas} \cdot R \cdot T_{sep}}{P_{sys} \cdot V_{sep,gas}} \times 100\%
+\end{equation}
+
+工程要求HTO严格低于上限$\mathrm{HTO}_{\mathrm{max}}$。
+
+\subsubsection{单槽状态空间}
+
+单槽系统的状态向量为7维：
+\begin{equation}
+  \mathbf{x}_{single} = [T_{s,in}, T_s, T_{sep}, T_{c,out}, n_{H_2,an}, n_{liq}, n_{gas}]^\top \in \mathbb{R}^7
+\end{equation}
+
+单槽系统的控制输入为3维：
+\begin{equation}
+  \mathbf{u}_{single} = [I, v_{lye}, v_c]^\top \in \mathbb{R}^3
+\end{equation}
+
+\section{多槽耦合系统建模}
+
+将$N$个单槽并联，共用换热器和分离器，构成多槽AWE系统。本节建立通用$N$槽耦合模型，实验验证取$N=4$。
+
+\subsection{系统状态与控制输入}
+
+$N$槽系统的状态向量为$(2N + 5)$维：
+\begin{equation}
+  \mathbf{x} = [T_{s,in}, T_{s,1}, \ldots, T_{s,N}, T_{sep}, T_{c,out}, n_{H_2,an,1}, \ldots, n_{H_2,an,N}, n_{liq}, n_{gas}]^\top \in \mathbb{R}^{2N+5}
+\end{equation}
+
+各状态变量含义与单槽相同，其中$T_{s,in}$、$T_{sep}$、$T_{c,out}$、$n_{liq}$、$n_{gas}$为各槽共用状态。
+
+控制输入为$(2N + 1)$维：
+\begin{equation}
+  \mathbf{u} = [I_1, \ldots, I_N, v_{lye,1}, \ldots, v_{lye,N}, v_c]^\top \in \mathbb{R}^{2N+1}
+\end{equation}
+
+其中$v_c$为共用冷却水流量。
+
+\subsection{多槽耦合热力学模型}
+
+\subsubsection{换热器耦合模型}
+
+$N$个电解槽共用换热器，总碱液流量：
+\begin{equation}
+  v_{tot} = \sum_{i=1}^{N} v_{lye,i}
+\end{equation}
+
+换热器动态与单槽形式相同，但使用总流量$v_{tot}$。
+
+\subsubsection{分离器热力学耦合}
+
+分离器入口温度为各槽出口温度的流量加权平均：
+\begin{equation}
+  T_{sep,in} = \begin{cases}
+    \frac{\sum_{i=1}^{N} v_{lye,i} \cdot T_{s,i}}{v_{tot}}, & v_{tot} > 10^{-6} \\
+    T_{sep}, & \text{其他}
+  \end{cases}
+\end{equation}
+
+分离器温度动态方程为：
+\begin{equation}
+  C_{sep} \frac{dT_{sep}}{dt} = 0.5 \cdot c_{lye} \cdot \rho_{lye} \cdot v_{tot} \cdot (T_{sep,in} - T_{sep}) - Q_{sep,diss}
+\end{equation}
+
+\subsection{多槽氢气传输与HTO模型}
+
+\subsubsection{各槽阳极室动态}
+
+每个电解槽的阳极室氢气动态与单槽形式相同，但各自独立：
+\begin{equation}
+  \frac{dn_{H_2,an,i}}{dt} = \dot{n}_{H_2,im,i} - \frac{n_{H_2,an,i} \cdot v_{lye,i}}{2 \cdot V_{an}}, \quad i = 1, \ldots, N
+\end{equation}
+
+\subsubsection{共用分离器动态}
+
+分离器液相接收来自所有$N$个电解槽的氢气：
+\begin{equation}
+  \frac{dn_{liq}}{dt} = \sum_{i=1}^{N} \frac{n_{H_2,an,i} \cdot v_{lye,i}}{2 \cdot V_{an}} - \frac{n_{liq}}{\tau_{sep}}
+\end{equation}
+
+分离器气相动态方程为：
+\begin{equation}
+  \frac{dn_{gas}}{dt} = \frac{n_{liq}}{\tau_{sep}} - \frac{R \cdot T_{sep} \cdot n_{gas} \cdot \sum_{i=1}^{N} \dot{n}_{O_2,prod,i}}{P_{sys} \cdot V_{sep,gas}}
+\end{equation}
+
+\subsubsection{系统整体HTO计算}
+
+多槽系统的HTO计算与单槽形式相同，但氧气产生速率为各槽之和：
+\begin{equation}
+  HTO = \frac{n_{gas} \cdot R \cdot T_{sep}}{P_{sys} \cdot V_{sep,gas}} \times 100\%
+\end{equation}
+
+\subsection{多槽耦合特性总结}
+
+$N$槽并联系统存在以下耦合机制：
+
+\begin{enumerate}
+  \item \textbf{热耦合}：$N$个电解槽共用换热器出口碱液温度$T_{s,in}$
+  \item \textbf{气相耦合}：分离器气相空间共享，$n_{gas}$和$n_{liq}$为公共状态
+  \item \textbf{温度耦合}：分离器温度$T_{sep}$受所有电解槽出口温度$T_{s,i}$的流量加权影响
+  \item \textbf{氢气耦合}：所有电解槽的氢气汇入共用分离器
+  \item \textbf{功率耦合}：总功率$P_{total} = \sum_{i=1}^{N} P_i$需跟踪参考值
+\end{enumerate}
+
+\subsection{实验系统：四槽特例}
+
+实验验证采用四槽并联系统（$N=4$），状态维度为13维，控制维度为9维：
+\begin{align}
+  \mathbf{x} &= [T_{s,in}, T_{s,1}, T_{s,2}, T_{s,3}, T_{s,4}, T_{sep}, T_{c,out}, \nonumber\\
+  &\qquad n_{H_2,an,1}, n_{H_2,an,2}, n_{H_2,an,3}, n_{H_2,an,4}, n_{liq}, n_{gas}]^\top \\
+  \mathbf{u} &= [I_1, I_2, I_3, I_4, v_{lye,1}, v_{lye,2}, v_{lye,3}, v_{lye,4}, v_c]^\top
+\end{align}
+
+系统动力学可统一表示为：
+\begin{equation}
+  \dot{\mathbf{x}} = \mathbf{f}(\mathbf{x}, \mathbf{u}), \quad \mathbf{x} \in \mathbb{R}^{13}, \, \mathbf{u} \in \mathbb{R}^9
+\end{equation}
+
+上述状态空间模型可归纳如表~\ref{tab:state_space_summary} 所示。
+系统包含四个功能子模型：电化学与产气模型（代数方程）、碱液流分配模型（代数方程）、传热模型（$N+3$阶ODE）和HTO杂质累积模型（$N+2$阶ODE）。
+
+% N-in-1 AWE系统状态空间模型总结表格
+\begin{table}[!htbp]
+  \centering
+  \caption{$N$槽并联AWE系统状态空间模型总结}
+  \label{tab:state_space_summary}
+  \small
+  \begin{tabular}{@{}c c c c c@{}}
+    \toprule
+    \textbf{子模型} & \textbf{电化学与产气} & \textbf{碱液流分配} & \textbf{传热} & \textbf{HTO杂质累积} \\
+    \midrule
+    \multirow{2}{*}{状态变量} & \multirow{2}{*}{/} & \multirow{2}{*}{/} & $T_{s,in}$, & $\{n_{H_2,an,i}\}_{i=1}^N$, \\
+    & & & $\{T_{s,i}\}_{i=1}^N$, $T_{sep}$, $T_{c,out}$ & $n_{liq}$, $n_{gas}$ \\
+    \addlinespace
+    模型阶数 & 0 & 0 & $N+3$ & $N+2$ \\
+    \midrule
+    \multicolumn{5}{l}{\textbf{控制变量：} 电解电流 $\{I_i\}_{i=1}^N$，碱液流量 $\{v_{lye,i}\}_{i=1}^N$，冷却水流量 $v_c$} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+表~\ref{tab:state_space_summary} 系统化了各子模型与状态变量之间的对应关系。
+四槽系统（$N=4$）的总状态维度为$2N+5=13$，控制维度为$2N+1=9$。
+
+\section{NMPC基线设计}
+
+\subsection{双层时间尺度建模}
+
+NMPC求解涉及两个不同的时间尺度：控制步长和仿真步长。参考图~\ref{fig:time_scales} 所示的双层时间结构，定义：
+
+\begin{itemize}
+  \item \textbf{控制步长}（Control Interval）：$\Delta t$，表示NMPC优化问题中相邻控制输入之间的时间间隔，同时也是实际控制器的执行周期
+  \item \textbf{仿真步长}（Simulation Step）：$\delta t$，表示ODE系统动态数值积分的时间步长
+  \item \textbf{预测时域}（Prediction Horizon）：$N_p$，表示NMPC向前预测的控制步数
+  \item \textbf{每步子步数}：$N_s = \Delta t / \delta t$，表示每个控制步长内包含的仿真子步数
+\end{itemize}
+
+\begin{figure}[!htp]
+  \centering
+  \begin{tikzpicture}[
+    box/.style={rectangle, draw, fill=blue!10, minimum width=1.2cm, minimum height=0.6cm, font=\small},
+    subbox/.style={rectangle, draw, fill=orange!10, minimum width=0.4cm, minimum height=0.4cm, font=\tiny},
+    arrow/.style={->, >=stealth, thick},
+    label/.style={font=\small}
+  ]
+    % 控制步
+    \foreach \i in {0,1,2,3,4,5} {
+      \node[box] (k\i) at (\i*2.5,0) {$k+\i$};
+    }
+
+    % 仿真子步 - 以第一个控制步为例
+    \foreach \j in {0,1,...,4} {
+      \node[subbox] (s\j) at (0.3+\j*0.4,-1.5) {};
+    }
+    \node[label] at (1.25,-1.5) {$\cdots$};
+    \foreach \j in {295,296,297,298,299} {
+      \pgfmathsetmacro{\xpos}{1.7+(\j-295)*0.4}
+      \node[subbox] at (\xpos,-1.5) {};
+    }
+
+    % 标注
+    \draw[arrow] (k0.south) -- ++(0,-0.5) node[left, label] {$\mathbf{u}_{k|k}$} -- ++(0,-0.3);
+    \draw[arrow] (k1.south) -- ++(0,-0.5) node[left, label] {$\mathbf{u}_{k+1|k}$} -- ++(0,-0.3);
+
+    % 时间轴标注
+    \draw[<->, thick] (k0.north) -- (k1.north) node[midway, above, label] {$\Delta t$};
+    \draw[<->, thick] (0.3,-2.2) -- (0.7,-2.2) node[midway, below, label] {$\delta t$};
+
+    % 说明
+    \node[label] at (6.25,0.8) {控制步（$N_p$）};
+    \node[label] at (6.25,-1.5) {仿真子步（$N_s$步/$\Delta t$）};
+
+  \end{tikzpicture}
+  \caption{NMPC双层时间尺度结构示意图}
+  \label{fig:time_scales}
+\end{figure}
+
+\subsection{系统动力学离散化}
+
+AWE系统的连续时间动力学由非线性常微分方程描述：
+\begin{equation}
+  \dot{\mathbf{x}}(t) = \mathbf{f}(\mathbf{x}(t), \mathbf{u}(t), \mathbf{p}(t))
+\end{equation}
+
+其中$\mathbf{x} \in \mathbb{R}^{13}$为状态向量，$\mathbf{u} \in \mathbb{R}^9$为控制输入。
+
+为在NMPC优化框架中处理该连续动力学，使用前向Euler方法离散化。对于第$k$个控制步（在当前时刻$k$的预测时域内），在第$j$个仿真子步的状态更新为：
+\begin{equation}
+  \mathbf{x}_{k+(j+1)\frac{\delta t}{\Delta t}|k} = \mathbf{x}_{k+j\frac{\delta t}{\Delta t}|k} + \mathbf{f}\left(\mathbf{x}_{k+j\frac{\delta t}{\Delta t}|k}, \mathbf{u}_{k|k}, \mathbf{p}_{k|k}\right) \cdot \delta t
+  \label{eq:ode_discretization}
+\end{equation}
+其中 $j = 0, 1, 2, \ldots, N_s-1$，$N_s = \Delta t / \delta t$。
+
+采用零阶保持假设，控制输入在整个控制步长内保持恒定：
+\begin{equation}
+  \mathbf{u}(t) = \mathbf{u}_{k|k}, \quad \forall t \in [k\Delta t, (k+1)\Delta t)
+\end{equation}
+
+经过$N_s$个仿真子步后，状态推进至下一个控制步，如式~\eqref{eq:state_transition} 所示：
+\begin{equation}
+  \mathbf{x}_{k+1|k} = \mathbf{x}_{k|k} + \sum_{j=1}^{N_s} \mathbf{f}\left(\boldsymbol{\chi}_{j-1,k}, \mathbf{u}_{k|k}, \mathbf{p}_{k|k}\right) \cdot \delta t
+  \label{eq:state_transition}
+\end{equation}
+
+其中$\boldsymbol{\chi}_{j,k} = \mathbf{x}_{k+j\frac{\delta t}{\Delta t}|k}$表示在第$k$个控制步内第$j$个仿真子步的中间状态。式~\eqref{eq:ode_discretization} 和式~\eqref{eq:state_transition} 共同构成了NMPC中的双层时间尺度状态转移模型。
+
+\subsection{NMPC优化问题建模}
+
+针对$N$槽系统（本研究$N=4$），在当前时刻$k$，NMPC求解以下有限时域优化问题：
+
+\begin{align}
+  \min_{\mathbf{U}_k} \quad & J = \sum_{i=0}^{N_p-1} \Bigg[ \lambda_{track}\left(P_{total,k+i|k} - P_{ref,k+i}\right)^2 + \lambda_{temp}\sum_{j=1}^{N}\left(T_{s,j,k+i|k} - T_{ref}\right)^2 \nonumber \\
+  & \quad + \lambda_I \sum_{j=1}^{N}\left(I_{j,k+i|k} - I_{j,k+i-1|k}\right)^2 + \lambda_{lye} \sum_{j=1}^{N}v_{lye,j,k+i|k}^2 + \lambda_c v_{c,k+i|k}^2 \Bigg] \\
+  \text{s.t.} \quad & \mathbf{g}\left(\mathbf{x}_{k+i|k}, \mathbf{u}_{k+i|k}\right) \leq 0, \quad i = 0, 1, \ldots, N_p-1 \\
+  & \mathbf{h}\left(\mathbf{x}_{k+i|k}, \mathbf{u}_{k+i|k}\right) = 0, \quad i = 0, 1, \ldots, N_p-1 \\
+  & \mathbf{x}_{k+i+1|k} - \mathbf{x}_{k+i|k} - \sum_{m=1}^{N_s} \mathbf{f}\left(\boldsymbol{\chi}_{m-1,k+i}, \mathbf{u}_{k+i|k}\right) \delta t = 0, \quad i = 0, 1, \ldots, N_p-1
+\end{align}
+
+其中优化变量为控制序列：
+\begin{equation}
+  \mathbf{U}_k = \left\{\mathbf{u}_{k|k}, \mathbf{u}_{k+1|k}, \ldots, \mathbf{u}_{k+N_p-1|k}\right\}
+\end{equation}
+
+每个控制向量包含以下分量：
+\begin{equation}
+  \mathbf{u}_{k+i|k} = \left[I_{1,k+i|k}, \ldots, I_{N,k+i|k}, v_{lye,1,k+i|k}, \ldots, v_{lye,N,k+i|k}, v_{c,k+i|k}\right]^\top
+\end{equation}
+
+\subsection{约束条件}
+
+不等式约束$\mathbf{g}(\cdot) \leq 0$包括：
+\begin{itemize}
+  \item 温度约束：$T_{min} \leq T_{s,j,k+i|k} \leq T_{max}, \quad \forall j = 1, \ldots, N$
+  \item 电压约束：$U_{cell,min} \leq U_{cell,j,k+i|k} \leq U_{cell,max}$
+  \item HTO约束：$\mathrm{HTO}_{k+i|k} \leq \mathrm{HTO}_{\mathrm{max}}$
+  \item 功率约束：$P_{stack,j,k+i|k} \leq P_{stack,max}$
+\end{itemize}
+
+等式约束$\mathbf{h}(\cdot) = 0$包括电压-电流关系、HTO计算等代数方程。
+
+\subsection{CasADi/IPOPT实现}
+
+NMPC控制器借助CasADi符号计算框架建立优化模型，并由IPOPT求解器进行数值求解。关键实现细节包括：
+
+\begin{itemize}
+  \item \textbf{子步进}：每个控制周期内使用$N_s$个仿真子步（步长$\delta t$）确保ODE数值积分稳定性
+  \item \textbf{Warm-starting}：利用上一时刻的解作为初始猜测，加速收敛
+  \item \textbf{稀疏雅可比}：利用CasADi自动微分生成稀疏雅可比矩阵，提高大规模优化问题求解效率
+\end{itemize}
+
+\subsection{局限性分析}
+
+NMPC存在以下局限：
+\begin{itemize}
+  \item 单次求解耗时2--5秒，难以满足实时控制需求
+  \item 存在局部最优风险
+  \item 参数调节复杂（权重、约束边界）
+\end{itemize}
+
+\section{专家数据集生成}
+
+为训练扩散模型控制策略，需构建覆盖典型工况的专家状态-动作数据集。
+采用NMPC作为专家控制器，在离线仿真环境中对多槽系统进行闭环推演，
+记录每个控制周期的系统状态与最优控制量，形成监督学习所需的数据样本。
+
+\subsection{数据生成流程}
+
+在每个控制周期$k$，以系统当前状态$\mathbf{x}_k$和参考功率序列$\{P_{ref,k},\ldots,P_{ref,k+N_p-1}\}$为输入，求解NMPC得到最优控制序列$\mathbf{U}_k^\star$。
+将首步控制$\mathbf{u}_k^\star$施加到多时间尺度仿真器，在该周期内通过$N_s$个子步对连续动力学数值积分，得到下一周期状态$\mathbf{x}_{k+1}$。
+重复上述过程直至完成整段功率轨迹的闭环仿真。NMPC专家数据生成的完整流程如算法~\ref{algo:expert_data_generation} 所示。
+
+\begin{algorithm}[htb]
+  \caption{NMPC专家数据生成}
+  \label{algo:expert_data_generation}
+  \SetAlgoLined
+  \KwIn{功率轨迹集合$\{P_{ref}^{(m)}\}_{m=1}^M$，初始状态分布$p(\mathbf{x}_0)$}
+  \KwOut{专家数据集$\mathcal{D}$}
+  初始化：$\mathcal{D} \leftarrow \emptyset$\\
+  \For{每段功率轨迹$m = 1, \ldots, M$}{
+    从$p(\mathbf{x}_0)$采样初始状态$\mathbf{x}_0^{(m)}$\\
+    \For{每个控制周期$k = 0, \ldots, K-1$}{
+      构造功率计划$P_{ref,k:k+N_p-1}^{(m)}$\\
+      求解NMPC优化问题，得到最优控制序列$\mathbf{U}_k^\star$\\
+      \eIf{NMPC收敛}{
+        记录专家样本：$\mathcal{D} \leftarrow \mathcal{D} \cup \{(\mathbf{x}_k, P_{ref,k:k+N_p-1}^{(m)}, \mathbf{u}_k^\star)\}$\\
+        执行首步控制$\mathbf{u}_k^\star$，仿真推进至$\mathbf{x}_{k+1}$\\
+      }{
+        跳过当前样本或采用上一时刻可行解回退\\
+      }
+    }
+  }
+  对$\mathcal{D}$进行归一化与训练/测试集划分\\
+  \Return{$\mathcal{D}$}
+\end{algorithm}
+
+生成过程中记录样本：
+\begin{equation}
+  \mathcal{D} = \left\{(\mathbf{o}_k, \mathbf{u}_k^\star)\right\}_{k=0}^{K-1}, \quad \mathbf{o}_k = [\mathbf{x}_k, P_{ref,k:k+N_p-1}]
+\end{equation}
+其中$\mathbf{o}_k$为策略条件输入，包含当前状态与未来$N_p$步的功率计划，$\mathbf{u}_k^\star$为NMPC给出的专家动作。
+
+\subsection{场景覆盖与数据质量控制}
+
+为增强数据集的代表性，专家数据生成覆盖多段功率轨迹与多组初始条件。
+每条轨迹开始时，对关键状态（如各槽温度、分离器状态量）进行扰动初始化，以覆盖不同热态与杂质累积水平。
+为保证样本质量，若NMPC在个别时刻未能收敛，则跳过该时刻的样本或采用上一时刻可行解作为回退控制，以避免引入明显的异常标签。
+
+\subsection{数据格式与预处理}
+
+训练数据以控制周期为采样间隔，输入为$\mathbf{o}_k$，监督标签为$\mathbf{u}_k^\star$。
+对各维状态与控制量采用按维线性归一化或标准化处理，使不同量纲的变量在网络训练中具有可比尺度。
+数据集按轨迹划分为训练集与测试集，以避免同一条闭环轨迹在不同划分间造成信息泄漏。
+
+\section{生成模型策略设计}
+
+\subsection{扩散模型策略（Diffusion Policy）}
+
+\subsubsection{DDPM基本原理}
+
+去噪扩散概率模型（Denoising Diffusion Probabilistic Model, DDPM）是一类生成模型，通过学习逆转一个逐步加噪的扩散过程生成高质量数据。
+其核心思想来源于非平衡热力学中的扩散过程，通过马尔可夫链将数据逐步转化为噪声，再学习逆过程从噪声恢复数据。
+
+\textbf{1. 前向扩散过程}
+
+前向过程是固定的马尔可夫链，从原始数据$\mathbf{x}_0$开始，逐步添加高斯噪声，经过$T$步后得到纯噪声$\mathbf{x}_T \sim \mathcal{N}(0, \mathbf{I})$。每步的加噪过程定义为：
+\begin{equation}
+  q(\mathbf{x}_t | \mathbf{x}_{t-1}) = \mathcal{N}(\mathbf{x}_t; \sqrt{1-\beta_t}\mathbf{x}_{t-1}, \beta_t \mathbf{I})
+\end{equation}
+
+其中$\beta_t \in (0, 1)$是预先定义的方差调度（variance schedule），控制每步添加的噪声量。通常采用线性或余弦调度，确保$\beta_1 < \beta_2 < \cdots < \beta_T$。
+
+利用重参数化技巧，可以直接从$\mathbf{x}_0$采样任意时间步$t$的状态：
+\begin{equation}
+  \mathbf{x}_t = \sqrt{\bar{\alpha}_t}\mathbf{x}_0 + \sqrt{1-\bar{\alpha}_t}\boldsymbol{\epsilon}, \quad \boldsymbol{\epsilon} \sim \mathcal{N}(0, \mathbf{I})
+\end{equation}
+
+其中$\alpha_t = 1 - \beta_t$，$\bar{\alpha}_t = \prod_{s=1}^{t}\alpha_s$。当$T$足够大时，$\mathbf{x}_T$近似服从标准正态分布。
+
+\textbf{2. 反向去噪过程}
+
+反向过程是学习得到的马尔可夫链，从纯噪声$\mathbf{x}_T$开始，逐步去噪恢复数据。理论上，当$\beta_t$足够小时，反向过程也是高斯分布：
+\begin{equation}
+  p_\theta(\mathbf{x}_{t-1} | \mathbf{x}_t) = \mathcal{N}(\mathbf{x}_{t-1}; \boldsymbol{\mu}_\theta(\mathbf{x}_t, t), \boldsymbol{\Sigma}_\theta(\mathbf{x}_t, t))
+\end{equation}
+
+其中均值$\boldsymbol{\mu}_\theta$和方差$\boldsymbol{\Sigma}_\theta$由神经网络参数化。
+
+根据贝叶斯定理，后验分布$q(\mathbf{x}_{t-1} | \mathbf{x}_t, \mathbf{x}_0)$也是高斯分布，其均值为：
+\begin{equation}
+  \tilde{\boldsymbol{\mu}}_t(\mathbf{x}_t, \mathbf{x}_0) = \frac{\sqrt{\bar{\alpha}_{t-1}}\beta_t}{1-\bar{\alpha}_t}\mathbf{x}_0 + \frac{\sqrt{\alpha_t}(1-\bar{\alpha}_{t-1})}{1-\bar{\alpha}_t}\mathbf{x}_t
+\end{equation}
+
+\textbf{3. 噪声预测网络}
+
+DDPM的核心思想是：直接预测原始数据$\mathbf{x}_0$比较困难，而预测噪声$\boldsymbol{\epsilon}$更具效率。
+因此，神经网络$\boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t, c)$被训练来预测前向过程中添加的噪声，其中$c$为条件信息（如系统状态和功率计划）。
+
+将$\mathbf{x}_0 = \frac{\mathbf{x}_t - \sqrt{1-\bar{\alpha}_t}\boldsymbol{\epsilon}}{\sqrt{\bar{\alpha}_t}}$代入后验均值表达式，得到：
+\begin{equation}
+  \boldsymbol{\mu}_\theta(\mathbf{x}_t, t) = \frac{1}{\sqrt{\alpha_t}}\left(\mathbf{x}_t - \frac{1-\alpha_t}{\sqrt{1-\bar{\alpha}_t}}\boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t, c)\right)
+\end{equation}
+
+\textbf{4. 训练目标}
+
+简化的训练目标为预测噪声的均方误差：
+\begin{equation}
+  \mathcal{L} = \mathbb{E}_{t, \mathbf{x}_0, \boldsymbol{\epsilon}} \left[ \| \boldsymbol{\epsilon} - \boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t, c) \|^2 \right]
+\end{equation}
+
+其中$t$从均匀分布$\mathcal{U}(\{1, \ldots, T\})$中采样，$\boldsymbol{\epsilon} \sim \mathcal{N}(0, \mathbf{I})$。该目标在实践中兼具简洁性与高效性，表现良好。
+
+\textbf{5. 推理采样}
+
+训练完成后，从标准正态分布采样$\mathbf{x}_T \sim \mathcal{N}(0, \mathbf{I})$，然后迭代执行去噪步骤：
+\begin{equation}
+  \mathbf{x}_{t-1} = \frac{1}{\sqrt{\alpha_t}}\left(\mathbf{x}_t - \frac{1-\alpha_t}{\sqrt{1-\bar{\alpha}_t}}\boldsymbol{\epsilon}_\theta(\mathbf{x}_t, t, c)\right) + \sqrt{\beta_t}\mathbf{z}
+\end{equation}
+
+其中$\mathbf{z} \sim \mathcal{N}(0, \mathbf{I})$（当$t > 1$时，$\mathbf{z} = \mathbf{0}$）。经过$T$步迭代后，得到生成的动作序列$\mathbf{x}_0$。
+
+\textbf{6. 扩散模型用于控制的优势}
+
+将扩散模型应用于控制任务具有以下优势：
+\begin{itemize}
+  \item \textbf{多模态建模}：捕捉控制动作的多峰分布，而非单点估计
+  \item \textbf{高质量样本}：生成的动作序列平滑且符合物理约束
+  \item \textbf{条件生成}：通过条件信息$c$实现上下文相关的动作生成
+  \item \textbf{灵活性}：可以与不同的采样策略（如分类器引导、代价加权）结合
+\end{itemize}
+
+\textbf{7. 预测控制中的应用}
+
+在预测控制框架中，扩散模型用于生成候选动作序列：
+\begin{equation}
+  \mathbf{a}_{t:t+N_p} \sim \pi_\theta(\cdot | \mathbf{x}_t, P_{ref,t:t+N_p})
+\end{equation}
+
+其中条件$c = [\mathbf{x}_t, P_{ref,t:t+N_p}]$包含当前状态和未来$N_p$步的功率计划。通过代价加权选择机制，从多个候选序列中选择最优动作执行。
+
+\subsection{网络架构}
+
+\subsubsection{时序卷积网络（TCN）}
+
+采用3层空洞卷积结构：
+\begin{itemize}
+  \item 隐藏维度：256
+  \item 卷积核大小：3
+  \item 空洞因子：$[1, 2, 4]$
+  \item 激活函数：Mish
+  \item 时间步嵌入：正弦位置编码
+\end{itemize}
+
+图~\ref{fig:network_arch} 展示了Diffusion TCN的网络架构。
+
+% network_structure.png Diffusion TCN网络架构图
+\begin{figure}[!htp]
+  \centering
+  \includegraphics[width=0.98\textwidth]{figures/network_structure.png}
+  \caption{Diffusion TCN网络架构图}
+  \label{fig:network_arch}
+\end{figure}
+
+网络接收噪声输入、时间步和条件信息，通过输入投影、时间嵌入和条件投影进行特征变换，再经过3层空洞卷积（dilation分别为1、2、4）的TCN块处理，输出预测的噪声或速度场。
+右侧详细展示了TemporalBlock的内部结构，包含两层空洞因果卷积、Mish激活、Dropout以及残差连接。
+当维度不匹配时，通过$1\times1$卷积完成通道对齐。
+
+具体而言，噪声输入$\mathbf{x}\in\mathbb{R}^{N\times T\times C_{in}}$对应动作序列的噪声表示，
+时间步$t\in\mathbb{R}^{N\times 1}$经过MLP映射得到时间特征，
+条件输入$\mathbf{c}\in\mathbb{R}^{N\times T\times C_{cond}}$通过一维卷积投影到隐藏维度并与主干特征融合。
+
+TCN的核心优势在于利用空洞卷积（Dilated Convolution）扩大感受野，其有效范围随网络深度呈指数级增长：
+\begin{equation}
+  \mathrm{RF} = k^L = 3^3 = 27
+\end{equation}
+其中$k=3$为卷积核大小，$L=3$为层数。网络因而可捕获长时序依赖关系，适合预测控制中的时序动作生成任务。
+
+图~\ref{fig:tcn_diffusion_training} 展示了训练过程的计算流。
+
+\begin{figure}[!htp]
+  \centering
+  \begin{tikzpicture}[
+    block/.style={rectangle, draw, rounded corners, minimum width=2.5cm, minimum height=0.8cm, align=center, font=\small},
+    smallblock/.style={rectangle, draw, rounded corners, minimum width=1.8cm, minimum height=0.6cm, align=center, font=\small},
+    arrow/.style={->, >=stealth, thick},
+    label/.style={font=\small}
+  ]
+    % 输入
+    \node[block, fill=green!15] (x1) at (0,3) {专家动作\\$\mathbf{a}_0$};
+    \node[block, fill=blue!15] (cond) at (0,1) {条件\\$[\mathbf{x}, P_{ref}]$};
+    \node[smallblock, fill=gray!20] (sample) at (2.5,4) {采样\\$t \sim U[0,1]$};
+    \node[smallblock, fill=gray!30] (noise) at (2.5,3) {加噪\\$\mathbf{x}_t$};
+    \node[smallblock, fill=gray!30] (eps) at (2.5,2) {噪声\\$\boldsymbol{\epsilon}$};
+
+    % 网络
+    \node[block, fill=orange!25, minimum width=3cm] (net) at (6,2.5) {TCN Diffusion\\网络$\epsilon_\theta$};
+
+    % 输出和损失
+    \node[smallblock, fill=red!15] (pred) at (9.5,2.5) {预测噪声\\$\hat{\boldsymbol{\epsilon}}$};
+    \node[smallblock, fill=red!25] (loss) at (12,2.5) {MSE损失};
+
+    % 箭头
+    \draw[arrow] (x1) -- (noise);
+    \draw[arrow] (noise) -- (net);
+    \draw[arrow] (cond) -- (net);
+    \draw[arrow] (sample) -- (noise);
+    \draw[arrow] (eps) -- (loss);
+    \draw[arrow] (net) -- (pred);
+    \draw[arrow] (pred) -- (loss);
+
+    % 标注
+    \node[label] at (6,0.3) {训练目标：$\mathcal{L} = \mathbb{E}\left[\|\boldsymbol{\epsilon} - \epsilon_\theta(\mathbf{x}_t, t, c)\|^2\right]$};
+  \end{tikzpicture}
+  \caption{Diffusion TCN训练过程示意图（DDPM）}
+  \label{fig:tcn_diffusion_training}
+\end{figure}
+
+\subsubsection{多层感知机（MLP）}
+
+MLP作为对比基线，采用全连接残差网络结构：
+\begin{itemize}
+  \item 隐藏层维度：$[512, 512, 512]$
+  \item 残差连接
+  \item LayerNorm归一化
+\end{itemize}
+
+与TCN相比，MLP将整条动作序列展平为固定长度的向量后回归预测，
+缺乏对时间维度显式建模的能力，生成的动作序列在时间维度的平滑性相对较弱。
+但由于其结构简单、参数量较小，仍可作为验证时序网络必要性的对照基线。
+
+生成模型输出候选动作序列后，通过物理仿真评估代价，其控制流程如算法~\ref{algo:generative_control} 所示。
+
+\begin{algorithm}[htb]
+  \caption{生成模型控制策略}
+  \label{algo:generative_control}
+  \SetAlgoLined
+  \KwIn{当前状态$\mathbf{x}_t$，功率计划$P_{ref}$，策略模型$\pi_\theta$，采样数$K$}
+  \KwOut{控制动作$\mathbf{a}_t$}
+
+  % 采样候选序列
+  采样$K$条候选动作序列$\{\mathbf{a}^{(i)}\}_{i=1}^K \sim \pi_\theta(\mathbf{x}_t, P_{ref})$
+
+  % 评估每条序列
+  \For{$i = 1, \ldots, K$}{
+    使用物理模型推演轨迹$\boldsymbol{\tau}^{(i)}$
+
+    计算综合代价：
+    $J^{(i)} = \lambda_{track}J_{track}^{(i)} + \lambda_{temp}J_{temp}^{(i)} + \lambda_{I}J_{I}^{(i)} + \lambda_{lye}J_{lye}^{(i)} + \lambda_{c}J_{c}^{(i)}$
+  }
+
+  % 加权选择
+  计算选择概率：$p^{(i)} \propto \exp(-J^{(i)}/\alpha)$
+
+  采样选择最优动作索引：$i^* \sim \text{Categorical}(\mathbf{p})$
+
+  提取首步动作：$\mathbf{a}_t = \mathbf{a}^{(i^*)}_0$
+
+  \Return{$\mathbf{a}_t$}
+\end{algorithm}
+
+\subsection{安全投影算子}
+
+为使生成控制量始终处于安全范围，建立安全投影算子（Safety Projection Operator），将无约束生成模型输出的名义控制量修正到可行控制集内。
+
+\subsubsection{可行控制集的定义}
+
+给定当前状态$\mathbf{x}_t$，定义可行控制集$\mathcal{C}(\mathbf{x}_t)$为同时满足状态相关安全约束与输入饱和约束的所有控制输入集合：
+\begin{equation}
+  \mathcal{C}(\mathbf{x}_t) = \left\{\mathbf{u}\ \middle|\ \mathbf{g}(\mathbf{x}_t,\mathbf{u}) \le 0,\ \mathbf{u}_{min} \le \mathbf{u} \le \mathbf{u}_{max}\right\}
+\end{equation}
+其中$\mathbf{g}(\mathbf{x}_t,\mathbf{u}) \le 0$ 为单步预测安全约束，具体包括：
+\begin{itemize}
+  \item \textbf{温度约束}：$T_{min} \le T_{s,i}(\mathbf{x}_t, \mathbf{u}) \le T_{max},\ i=1,\dots,N$
+  \item \textbf{HTO约束}：$\mathrm{HTO}(\mathbf{x}_t, \mathbf{u}) \le \mathrm{HTO}_{\mathrm{max}}$
+  \item \textbf{电压约束}：$U_{cell,i}(\mathbf{x}_t, \mathbf{u}) \le U_{cell,max},\ i=1,\dots,N$
+  \item \textbf{功率约束}：$P_{i}(\mathbf{x}_t, \mathbf{u}) \le P_{stack,max},\ i=1,\dots,N$
+\end{itemize}
+以上约束中的下一时刻状态量由简化的热力学模型单步预测得到。以电解槽温度为例，采用前向Euler近似：
+\begin{equation}
+  T_{s,i}(\mathbf{x}_t, \mathbf{u}) \approx T_{s,i,t} + \frac{\Delta t}{C_s}\left[ Q_{ele,i} - Q_{diss,i} - Q_{flow,i} \right]
+\end{equation}
+其中$\Delta t$为控制周期，热生成项$Q_{ele,i}$、热耗散项$Q_{diss,i}$与对流换热项$Q_{flow,i}$均采用当前状态$\mathbf{x}_t$和候选控制$\mathbf{u}$计算。HTO、电压与功率的单步预测亦采用相同原理。
+
+\subsubsection{投影优化问题}
+
+投影后的安全控制量为名义控制量$\mathbf{u}_{nom}$到可行集$\mathcal{C}(\mathbf{x}_t)$上的欧几里得投影：
+\begin{equation}
+  \mathbf{u}_t = \mathcal{P}_{\mathcal{C}(\mathbf{x}_t)}(\mathbf{u}_{nom}) = \arg\min_{\mathbf{u}\in\mathcal{C}(\mathbf{x}_t)} \|\mathbf{u}-\mathbf{u}_{nom}\|_2^2
+\label{eq:safety_projection}
+\end{equation}
+该优化问题的目标函数为二次型，但约束包含非线性单步预测约束与盒式输入约束，因此属于非线性规划（NLP）问题，而非标准二次规划（QP）。
+
+\subsubsection{数值求解实现}
+
+实现了两套数值求解器以兼顾精度与效率：
+\begin{itemize}
+  \item \textbf{CasADi/IPOPT}：利用CasADi符号计算框架自动求导，IPOPT内点法求解，适用于对精度要求较高的离线验证；
+  \item \textbf{SciPy SLSQP}：基于SciPy优化库的序列最小二乘规划算法，无需额外符号计算依赖，适用于快速在线投影。
+\end{itemize}
+
+投影算子的执行流程如算法~\ref{algo:safety_projection} 所示。
+
+\begin{algorithm}[htb]
+  \caption{安全投影算子}
+  \label{algo:safety_projection}
+  \SetAlgoLined
+  \KwIn{当前状态$\mathbf{x}_t$，名义控制量$\mathbf{u}_{nom}$}
+  \KwOut{安全控制量$\mathbf{u}_t$}
+  初始化：设定可行控制集$\mathcal{C}(\mathbf{x}_t)$\\
+  \For{温度、HTO、电压、功率约束$j=1,\dots,m$}{
+    构建单步预测约束$g_j(\mathbf{x}_t, \mathbf{u}) \le 0$\\
+  }
+  求解带约束优化问题~\eqref{eq:safety_projection}：\\
+  \quad$\mathbf{u}_t = \arg\min_{\mathbf{u}\in\mathcal{C}(\mathbf{x}_t)} \|\mathbf{u}-\mathbf{u}_{nom}\|_2^2$\\
+  \Return{$\mathbf{u}_t$}
+\end{algorithm}
+
+该投影修正可在不显著偏离生成策略的前提下，严格满足温度、HTO、电压与功率等关键安全约束。
+
+\subsection{基于控制障碍函数的安全约束保证}
+
+控制障碍函数（Control Barrier Function, CBF）为安全约束提供了严格的理论保证~\cite{Ames2019CBF}。
+本节针对AWE系统的HTO约束，建立非线性非仿射CBF框架，给出完整的李导数推导。
+
+\subsubsection{CBF基本概念}
+
+考虑一般非线性控制系统$\dot{\mathbf{x}} = \mathbf{f}(\mathbf{x}, \mathbf{u})$，其中$\mathbf{x}\in\mathbb{R}^n$，$\mathbf{u}\in\mathcal{U}\subset\mathbb{R}^m$。设安全集$\mathcal{C}$定义为：
+\begin{equation}
+  \mathcal{C} = \left\{ \mathbf{x}\in\mathbb{R}^n \mid h(\mathbf{x}) \ge 0 \right\}
+\end{equation}
+其中$h: \mathbb{R}^n \to \mathbb{R}$为连续可微函数。若存在类$\mathcal{K}$函数$\alpha(\cdot)$使得对所有$\mathbf{x}\in\mathcal{C}$有：
+\begin{equation}
+  \sup_{\mathbf{u}\in\mathcal{U}} \left[ \frac{\partial h}{\partial \mathbf{x}} \mathbf{f}(\mathbf{x}, \mathbf{u}) \right] \ge -\alpha(h(\mathbf{x}))
+\end{equation}
+则称$h$为控制障碍函数。取$\alpha(h) = \gamma_{CBF} h$（$\gamma_{CBF}>0$），得到广泛采用的指数型CBF条件：
+\begin{equation}
+  \dot{h}(\mathbf{x}, \mathbf{u}) + \gamma_{CBF} h(\mathbf{x}) \ge 0
+\label{eq:cbf_condition}
+\end{equation}
+式~\eqref{eq:cbf_condition} 保证了安全集$\mathcal{C}$的前向不变性：若$\mathbf{x}(0)\in\mathcal{C}$，则对所有$t\ge 0$有$\mathbf{x}(t)\in\mathcal{C}$。
+
+\subsubsection{HTO约束的CBF设计}
+
+根据理想气体状态方程$PV=nRT$，气相中氢气的体积百分比为：
+\begin{equation}
+  HTO_{pct} = \frac{n_{gas} \cdot R \cdot T_{sep}}{P_{sys} \cdot V_{sep,gas}} \times 100\%
+\end{equation}
+工程安全要求$\mathrm{HTO}_{\mathrm{pct}} \le 2\%$。定义系统常数：
+\begin{equation}
+  K_{HTO} = \frac{R}{P_{sys} \cdot V_{sep,gas}}
+\end{equation}
+为便于李导数推导，本节以单槽的7维状态向量为分析对象：
+\begin{equation}
+  \mathbf{x} = [x_1, \dots, x_7]^\top = [T_{s,in}, T_s, T_{sep}, T_{c,out}, n_{H_2,an}, n_{liq}, n_{gas}]^\top
+\end{equation}
+则HTO约束可写为状态空间形式$K_{HTO} \cdot x_3 \cdot x_7 \le 0.02$，其中$x_3 = T_{sep}$，$x_7 = n_{gas}$。
+
+选取CBF候选函数如式~\eqref{eq:h_hto} 所示，将HTO安全约束显式写为系统状态的函数：
+\begin{equation}
+  h_{HTO}(\mathbf{x}) = 0.02 - K_{HTO} \cdot x_3 \cdot x_7
+\label{eq:h_hto}
+\end{equation}
+上述CBF函数的梯度向量如下：
+\begin{equation}
+  \nabla h_{HTO} = \left[ 0,\ 0,\ -K_{HTO} \cdot x_7,\ 0,\ 0,\ 0,\ -K_{HTO} \cdot x_3 \right]
+\end{equation}
+
+\subsubsection{李导数计算}
+
+CBF的时间导数由链式法则给出：
+\begin{equation}
+  \dot{h}_{HTO} = \nabla h_{HTO} \cdot f(\mathbf{x}, \mathbf{u}) = -K_{HTO} \cdot \left( x_7 \dot{x}_3 + x_3 \dot{x}_7 \right)
+\label{eq:h_hto_dot_chain}
+\end{equation}
+
+分离器温度动态$\dot{x}_3$为：
+\begin{equation}
+  \dot{x}_3 = \frac{1}{C_{sep}}\left[ c_{lye}\rho_{lye} u_2 (x_2 - x_3) - Q_{sep,diss}(x_3) \right]
+\end{equation}
+其中$Q_{sep,diss}(x_3) = h_{sep}(x_3 - T_{amb})$为分离器热耗散功率。
+
+气相氢气动态$\dot{x}_7$为：
+\begin{equation}
+  \dot{x}_7 = \frac{x_6}{\tau_{sep}} - \frac{R \cdot x_3 \cdot x_7 \cdot N_{cell} \cdot u_1 \cdot \eta_F(u_1, x_2)}{4F \cdot P_{sys} \cdot V_{sep,gas}}
+\end{equation}
+其中关键的非仿射耦合项为$u_1 \cdot \eta_F(u_1, x_2)$，法拉第效率：
+\begin{equation}
+  \eta_F(I, T_s) = \frac{I^2}{f_1(T_s) + I^2} \cdot f_2(T_s)
+\end{equation}
+温度依赖参数定义如下：
+\begin{align}
+  f_1(T_s) &= 50 + 2.5(T_s - 273.15) \\
+  f_2(T_s) &= 0.92 - 6.25 \times 10^{-6}(T_s - 273.15)
+\end{align}
+
+将$\dot{x}_3$与$\dot{x}_7$代入式~\eqref{eq:h_hto_dot_chain} 后整理，可得控制仿射与非仿射混合形式：
+\begin{equation}
+  \dot{h}_{HTO}(\mathbf{x}, \mathbf{u}) = \underbrace{\gamma(\mathbf{x}) \cdot u_1 \cdot \eta_F(u_1, x_2)}_{\text{电流控制（非仿射）}} - \underbrace{\beta(\mathbf{x}) \cdot u_2}_{\text{流量控制（仿射）}} + \underbrace{\phi(\mathbf{x})}_{\text{纯状态漂移}}
+\label{eq:h_hto_expanded}
+\end{equation}
+
+其中各系数定义如下：
+\begin{align}
+  \gamma(\mathbf{x}) &= \frac{R^2 \cdot N_{cell} \cdot x_3^2 \cdot x_7}{4F \cdot P_{sys}^2 \cdot V_{sep,gas}^2} > 0 \quad (\text{当 } x_3, x_7 > 0) \\
+  \beta(\mathbf{x}) &= \frac{K_{HTO} \cdot c_{lye} \cdot \rho_{lye} \cdot x_7 \cdot (x_2 - x_3)}{C_{sep}} \\
+  \phi(\mathbf{x}) &= \frac{K_{HTO} \cdot x_7 \cdot Q_{sep,diss}(x_3)}{C_{sep}} - \frac{K_{HTO} \cdot x_3 \cdot x_6}{\tau_{sep}}
+\end{align}
+
+\subsubsection{非仿射CBF优化问题}
+
+在每个控制时刻，CBF安全滤波器求解以下点wise优化问题：
+\begin{equation}
+  \begin{aligned}
+    \min_{\mathbf{u}\in\mathcal{U}} \quad & \|\mathbf{u} - \mathbf{u}_{ref}\|_2^2 \\
+    \text{s.t.} \quad & \gamma(\mathbf{x}) \cdot u_1 \cdot \eta_F(u_1, x_2) - \beta(\mathbf{x}) \cdot u_2 + \phi(\mathbf{x}) + \gamma_{CBF} h_{HTO}(\mathbf{x}) \ge 0 \\
+    & \mathbf{u}_{min} \le \mathbf{u} \le \mathbf{u}_{max}
+  \end{aligned}
+\label{eq:cbf_optimization}
+\end{equation}
+
+由于式~\eqref{eq:cbf_optimization} 的约束包含$u_1 \cdot \eta_F(u_1, x_2)$这一关于电流的非仿射项，标准的二次规划（QP）方法不再适用。
+借助CasADi/IPOPT求解该非凸非线性优化问题，通过符号自动微分精确计算李导数，确保CBF条件的严格满足。
+CBF安全滤波器的执行流程如算法~\ref{algo:cbf_filter} 所示。
+
+\begin{algorithm}[htb]
+  \caption{非仿射CBF安全滤波}
+  \label{algo:cbf_filter}
+  \SetAlgoLined
+  \KwIn{当前状态$\mathbf{x}_t$，参考控制量$\mathbf{u}_{ref}$，CBF参数$\{\gamma_i\}_{i=1}^5$}
+  \KwOut{安全控制量$\mathbf{u}_t$}
+  计算各CBF函数值$\{h_i(\mathbf{x}_t)\}_{i=1}^5$\\
+  利用符号自动微分计算李导数$\{\dot{h}_i(\mathbf{x}_t, \mathbf{u})\}_{i=1}^5$\\
+  构建联合CBF约束：$\dot{h}_i(\mathbf{x}_t, \mathbf{u}) + \gamma_i h_i(\mathbf{x}_t) \ge 0,\quad i=1,\dots,5$\\
+  求解带约束优化问题：\\
+  \quad$\mathbf{u}_t = \arg\min_{\mathbf{u}_{min} \le \mathbf{u} \le \mathbf{u}_{max}} \|\mathbf{u} - \mathbf{u}_{ref}\|_2^2$\\
+  \qquad s.t. $\dot{h}_i(\mathbf{x}_t, \mathbf{u}) + \gamma_i h_i(\mathbf{x}_t) \ge 0,\quad \forall i$\\
+  \If{优化问题不可行}{
+    触发可行性回退：$\mathbf{u}_t \leftarrow \mathbf{u}_{min}$ 或采用最近可行解\\
+  }
+  \Return{$\mathbf{u}_t$}
+\end{algorithm}
+
+\subsubsection{温度约束的CBF推导}
+
+除HTO约束外，温度上下限同样需要严格满足。选取仅依赖于状态$x_2 = T_s$的CBF候选函数：
+\begin{equation}
+  \begin{aligned}
+    h_1(\mathbf{x}) &= 363.15 - x_2, \\
+    h_2(\mathbf{x}) &= x_2 - 293.15
+  \end{aligned}
+  \label{eq:h_temperature}
+\end{equation}
+其中$h_1$对应温度上限（$90^\circ$C），$h_2$对应温度下限（$20^\circ$C）。
+
+$h_1$的梯度向量仅对$x_2$有非零偏导：
+\begin{equation}
+  \nabla h_1 = \left[ 0,\ -1,\ 0,\ 0,\ 0,\ 0,\ 0 \right]
+\end{equation}
+
+根据链式法则，其时间导数为：
+\begin{equation}
+  \dot{h}_1 = \nabla h_1 \cdot f(\mathbf{x}, \mathbf{u}) = -\dot{x}_2 = -\dot{T}_s
+\end{equation}
+
+将电解槽热平衡动态$\dot{x}_2$代入，得：
+\begin{equation}
+  \dot{h}_1(\mathbf{x}, \mathbf{u}) = -\frac{1}{C_s}\left[ Q_{ele}(u_1, x_2) - Q_{diss}(x_2) - c_{lye}\rho_{lye} u_2 (x_2 - x_1) \right]
+  \label{eq:h1_dot}
+\end{equation}
+其中$Q_{ele}(u_1, x_2) = N_{cell} \cdot u_1 \cdot [U_{cell}(u_1, x_2) - \eta_F(u_1, x_2) \cdot U_{th}]$为电化学产热功率，$Q_{diss}(x_2) = \sigma_s(x_2 - T_{am}) + \epsilon_s \sigma_b A_{stack}(x_2^4 - T_{am}^4)$为散热功率。
+
+类似地，$h_2$的梯度为$\nabla h_2 = [0, 1, 0, 0, 0, 0, 0]$，时间导数为：
+\begin{equation}
+  \dot{h}_2(\mathbf{x}, \mathbf{u}) = \dot{x}_2 = \frac{1}{C_s}\left[ Q_{ele}(u_1, x_2) - Q_{diss}(x_2) - c_{lye}\rho_{lye} u_2 (x_2 - x_1) \right] = -\dot{h}_1(\mathbf{x}, \mathbf{u})
+  \label{eq:h2_dot}
+\end{equation}
+
+温度约束的CBF条件分别为：
+\begin{equation}
+  \begin{aligned}
+    -\frac{1}{C_s}\left[ Q_{ele}(u_1, x_2) - Q_{diss}(x_2) - c_{lye}\rho_{lye} u_2 (x_2 - x_1) \right] + \gamma_1 h_1(\mathbf{x}) &\ge 0, \\
+    \frac{1}{C_s}\left[ Q_{ele}(u_1, x_2) - Q_{diss}(x_2) - c_{lye}\rho_{lye} u_2 (x_2 - x_1) \right] + \gamma_2 h_2(\mathbf{x}) &\ge 0
+  \end{aligned}
+  \label{eq:cbf_temperature}
+\end{equation}
+
+\subsubsection{多重CBF联合约束}
+
+系统还需同时满足电压上限与功率上限约束。为此，定义如下多重CBF：
+\begin{equation}
+  \begin{array}{ll}
+    h_1(\mathbf{x}) = 363.15 - x_2, & \text{（温度上限，90$^\circ$C）} \\
+    h_2(\mathbf{x}) = x_2 - 293.15, & \text{（温度下限，20$^\circ$C）} \\
+    h_3(\mathbf{x}) = 2.2 - U_{cell}(x_2, u_1), & \text{（电压上限）} \\
+    h_4(\mathbf{x}) = 6\times10^6 - P(x_2, u_1), & \text{（功率上限）} \\
+    h_5(\mathbf{x}) = 0.02 - K_{HTO} \cdot x_3 \cdot x_7, & \text{（HTO上限）}
+  \end{array}
+\end{equation}
+联合CBF条件要求同时满足：
+\begin{equation}
+  \dot{h}_i(\mathbf{x}, \mathbf{u}) + \gamma_i h_i(\mathbf{x}) \ge 0, \quad \forall i = 1, \dots, 5
+\label{eq:joint_cbf}
+\end{equation}
+在优化求解时，式~\eqref{eq:joint_cbf} 作为多个不等式约束同时处理。
+
+\subsubsection{物理意义分析}
+
+由式~\eqref{eq:h_hto_expanded} 可分析各控制动作对$\dot{h}_{HTO}$的影响：
+\begin{itemize}
+  \item \textbf{增大电流$u_1$}：由于$\gamma(\mathbf{x})>0$且$\eta_F>0$，增大$u_1$会正向提升$\dot{h}_{HTO}$，即推动系统远离HTO边界；
+  \item \textbf{增大碱液流速$u_2$}：其影响取决于$\beta(\mathbf{x})$的符号。若$x_2 > x_3$，增大$u_2$可降低分离器温度，从而间接降低HTO；
+  \item \textbf{漂移项$\phi(\mathbf{x})$}：反映散热与液相传质的被动影响。
+\end{itemize}
+
+上述分析揭示了反直觉的安全控制策略：
+\textbf{当HTO接近危险边界时，必须通过增大电流来提高氧气产率，从而``稀释''气相中的氢气浓度}。
+这与常规直觉相反——直观上倾向于降低电流以减少氢气产生，但这会导致氧气产生同样减少，反而使HTO升高。
+CBF框架通过显式处理非仿射耦合$u_1 \cdot \eta_F(u_1, x_2)$，为这一反直觉安全策略提供了严格理论保证。
+
+综上，生成模型控制策略可分别与安全投影算子或CBF安全滤波结合，形成两种并行的安全预测控制闭环，其执行流程如算法~\ref{algo:safe_closed_loop_control} 所示。
+
+\begin{algorithm}[htb]
+  \caption{基于扩散模型与安全约束的闭环控制}
+  \label{algo:safe_closed_loop_control}
+  \SetAlgoLined
+  \KwIn{初始状态$\mathbf{x}_0$，功率参考轨迹$\{P_{ref,t}\}$，策略模型$\pi_\theta$，安全机制$\mathcal{S}$（安全投影$\mathcal{P}$或CBF滤波$\mathcal{F}_{CBF}$）}
+  \KwOut{闭环状态轨迹$\{\mathbf{x}_t\}$与控制轨迹$\{\mathbf{u}_t\}$}
+  \For{每个控制周期$t = 0, 1, 2, \ldots$}{
+    采样$K$条候选动作序列$\{\mathbf{a}^{(i)}\}_{i=1}^K \sim \pi_\theta(\mathbf{x}_t, P_{ref,t:t+N_p-1})$\\
+    \For{$i = 1, \ldots, K$}{
+      使用物理模型推演轨迹并计算代价$J^{(i)}$\\
+    }
+    按选择概率$p^{(i)} \propto \exp(-J^{(i)}/\alpha)$采样名义动作$\mathbf{u}_{nom}$\\
+    $\mathbf{u}_t \leftarrow \mathcal{S}(\mathbf{u}_{nom}, \mathbf{x}_t)$ \tcp*{根据配置选择安全投影或CBF滤波}
+    将$\mathbf{u}_t$施加到多时间尺度仿真器，推进至下一状态$\mathbf{x}_{t+1}$\\
+  }
+  \Return{$\{\mathbf{x}_t\}, \{\mathbf{u}_t\}$}
+\end{algorithm}
+
+下文将通过闭环仿真实验，验证安全投影算子与CBF约束保证机制在四槽AWE系统中的实际控制效果。
+
+\section{实验验证与结果分析}
+
+\subsection{实验设置}
+
+\subsubsection{实验对象}
+
+实验验证采用\textbf{四槽并联AWE系统}（$N=4$），系统参数如表~\ref{tab:system_params}所示。
+
+\subsubsection{硬件与软件环境}
+
+仿真实验在以下软硬件平台下开展：
+\begin{itemize}
+  \item CPU：Intel Core i9-12900K
+  \item GPU：NVIDIA RTX 4090（训练阶段）
+  \item 内存：64GB DDR5
+  \item Python 3.10，PyTorch 2.0，CasADi 3.6
+\end{itemize}
+
+\subsubsection{评价指标}
+
+为定量对比各控制方法的综合性能，定义以下评价指标：
+
+\begin{itemize}
+  \item \textbf{功率跟踪}：$\mathrm{RMSE} = \sqrt{\frac{1}{T}\sum_{t=1}^{T}(P_{actual,t} - P_{ref,t})^2}$
+  \item \textbf{温度调节}：$\mathrm{MAE}_T = \frac{1}{T}\sum_{t=1}^{T}\sum_{i=1}^{4}|T_{s,i,t} - T_{ref}|$
+  \item \textbf{约束满足}：越界次数、越界持续时间
+  \item \textbf{计算效率}：单次推理时间
+\end{itemize}
+
+\subsection{闭环仿真结果}
+
+\subsubsection{功率跟踪性能}
+
+表~\ref{tab:performance_comparison} 对比了不同控制方法在四槽系统上的性能。
+
+\begin{table}[!htbp]
+  \centering
+  \caption{控制方法性能对比（四槽系统）}
+  \label{tab:performance_comparison}
+  \begin{tabular}{@{}l c c c@{}}
+    \toprule
+    \textbf{方法} & \textbf{功率RMSE [MW]} & \textbf{温度MAE [K]} & \textbf{推理时间 [ms]} \\
+    \midrule
+    NMPC & 0.12 & 1.6 & 2000--5000 \\
+    Diffusion TCN & 0.14 & 2.0 & 50 \\
+    Diffusion TCN + 安全投影 & 0.14 & 2.0 & $\sim$50 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+图~\ref{fig:multi_stack_comparison} 展示了NMPC、Flow TCN与Diffusion TCN在1小时闭环仿真中的跟踪与控制效果。
+由图可见，三种方法均能较好地跟踪参考功率曲线，但NMPC的功率跟踪误差最小，这与其在线优化求解的本质一致。
+Flow TCN与Diffusion TCN的功率跟踪精度接近，略高于NMPC。
+在温度调节方面，三种方法的温度波动均在安全范围内，但Diffusion TCN的温度跟踪误差略大于NMPC。
+HTO指标方面，所有方法均能将气相氢气浓度控制在2\%安全阈值以下。
+值得注意的是，NMPC的单次控制计算时间高达2000--5000 ms，而Diffusion TCN和Flow TCN仅需约50 ms，实现了近两个数量级的加速，显著满足了实时控制需求。
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=0.98\textwidth]{figures/multi_stack_comparison.png}
+  \caption{NMPC、Flow TCN与Diffusion TCN闭环控制效果对比}
+  \label{fig:multi_stack_comparison}
+\end{figure}
+
+\subsubsection{安全性分析}
+
+在引入投影算子和CBF的安全约束保证机制后，系统在全部测试时段内严格满足各项安全约束：
+\begin{itemize}
+  \item \textbf{HTO约束}：气相氢气浓度始终低于2\%的安全阈值，无越界情况；
+  \item \textbf{温度约束}：各电解槽温度均保持在293.15--363.15 K（20--90°C）范围内，满足率100\%；
+  \item \textbf{电压与功率约束}：单槽电压不超过2.2 V，单槽功率不超过6 MW，约束满足率100\%。
+\end{itemize}
+
+图~\ref{fig:multi_stack_cbf_unified} 展示了多重CBF联合约束在低功率HTO工况下的闭环验证结果。
+图中从上至下依次为四槽电流、碱液流量、总功率、HTO百分比、电解槽温度、平均电压，以及各CBF约束的原始值$h$、李导数$L_f h$和CBF条件$\dot{h}+\gamma h$的演化曲线。
+可以看到，尽管参考电流较低（约600 A），但在前30分钟内各CBF条件均保持在零以上，未出现约束违反。
+CBF投影的求解时间（右下角）平均值低于15 ms，验证了该安全机制的计算可行性。
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.98\textwidth]{figures/multi_stack_cbf_unified.png}
+  \caption{多重CBF联合约束闭环验证结果（低功率HTO工况）}
+  \label{fig:multi_stack_cbf_unified}
+\end{figure}
+
+上述结果表明，所提出的安全增强机制在不显著牺牲跟踪性能的前提下
+严格保证系统的安全运行。
+
+为进一步验证CBF在高温极端工况下的约束保证能力，
+设计了高功率产热测试场景：将四槽参考电流均设为8000~A，冷却水流量设为0~m$^3$/s，
+人为制造强烈的温升趋势。
+在此条件下，若不加安全约束，电解槽温度将迅速突破90$^\circ$C上限。
+图~\ref{fig:multi_stack_cbf_high_temp} 展示了该工况下的多槽CBF闭环验证结果。
+由图可见，CBF安全滤波通过主动增加冷却水流量并适度降低电流，
+将各槽温度严格控制在90$^\circ$C以下（最高温度为89.87$^\circ$C），
+HTO指标亦保持在2\%安全阈值以内，求解时间仍在20~ms以内。
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.98\textwidth]{figures/multi_stack_cbf_high_temp.png}
+  \caption{多重CBF联合约束闭环验证结果（高温极端工况）}
+  \label{fig:multi_stack_cbf_high_temp}
+\end{figure}
+
+为验证CBF在功率上限约束下的有效性，设计了高功率测试场景：四槽参考电流均设为9360~A（接近电流上限），冷却水流量设为0.5~m$^3$/s，
+碱液流量设为0.03~m$^3$/s，以主动触发功率上限（6~MW/槽）和电压上限（2.2~V）约束。
+较高的冷却水流量参考用于防止温度约束被触发，使CBF专注于功率和电压约束的处理。
+图~\ref{fig:multi_stack_cbf_high_power} 展示了该工况下的多槽CBF闭环验证结果。
+CBF安全滤波通过主动降低电流（约从9360~A降至8722~A），将各槽功率严格控制在6~MW以下，
+电压保持在2.2~V以内，最高温度为84.90$^\circ$C，HTO指标亦保持在2\%安全阈值以内，
+求解时间平均值约23~ms，仍在实时控制要求范围内。
+
+进一步在单槽场景下验证功率约束主导的CBF行为：参考电流设为9360~A，冷却水流量设为1.0~m$^3$/s，
+采用硬温度约束以确保温度安全。结果显示CBF将电流从9360~A降至约9014~A，
+主要受功率和电压约束限制，最高温度为89.50$^\circ$C，
+HTO指标保持在0.928\%，验证了功率约束主导的CBF修正策略。
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.98\textwidth]{figures/multi_stack_cbf_high_power.png}
+  \caption{多重CBF联合约束闭环验证结果（高功率工况）}
+  \label{fig:multi_stack_cbf_high_power}
+\end{figure}
+
+\subsubsection{安全投影对比实验}
+
+安全投影算子与CBF安全滤波是两种并行的安全约束保证机制。
+前者基于单步预测将控制量修正到可行集内，后者通过李导数构建前向不变性理论保证。
+为对比两种机制的效果，设计了三组实验：
+（1）无安全机制的纯Diffusion TCN（Basic）；
+（2）Diffusion TCN + 安全投影算子（Safe）；
+（3）Diffusion TCN + CBF安全滤波（CBF）。
+实验在同一组风电功率曲线下进行闭环仿真，对比结果如表~\ref{tab:safety_projection_comparison} 所示。
+
+\begin{table}[!htbp]
+  \centering
+  \caption{安全投影对比实验结果}
+  \label{tab:safety_projection_comparison}
+  \begin{tabular}{@{}l c c c c@{}}
+    \toprule
+    \textbf{配置} & \textbf{功率RMSE [MW]} & \textbf{温度MAE [K]} & \textbf{约束违反次数} & \textbf{单次推理时间 [ms]} \\
+    \midrule
+    Diffusion TCN（无安全） & 0.14 & 2.0 & 12 & 50 \\
+    \addlinespace
+    Diffusion TCN + 安全投影 & 0.14 & 2.0 & 0 & 58 \\
+    \addlinespace
+    Diffusion TCN + CBF滤波 & 0.14 & 2.0 & 0 & 72 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+从表~\ref{tab:safety_projection_comparison} 可得出以下结论：
+\begin{itemize}
+  \item \textbf{无安全机制时}，纯Diffusion TCN在动态跟踪过程中出现了12次约束违反，主要集中在功率骤升导致温度接近上限或HTO短时超界的极端工况。这验证了纯数据驱动方法虽然整体精度较高，但无法对安全约束提供严格保证。
+
+  \item \textbf{采用安全投影后}，所有约束违反均被消除。投影算子通过单步预测将不安全的控制量修正到可行集内，对跟踪性能几乎无影响（功率RMSE和温度MAE保持不变），单次投影求解平均耗时约8 ms，总推理时间从50 ms增至58 ms。
+
+  \item \textbf{采用CBF安全滤波后}，系统在理论层面获得了前向不变性保证。CBF优化平均耗时约14 ms，总推理时间约为72 ms，仍在100 ms的实时控制要求以内。
+\end{itemize}
+
+图~\ref{fig:multi_stack_cbf_comparison} 进一步展示了低功率HTO风险工况下，三种配置（Basic、Safe、CBF）的闭环对比结果。
+在该工况中，参考功率接近于零，气相氢气容易累积导致HTO上升。
+由图可见，无安全机制的Basic控制器（蓝色曲线）的HTO持续升高并超出2\%安全阈值，最终在第25分钟左右发生严重越界；
+采用安全投影后（绿色曲线），HTO被有效抑制在安全边界以下，电流和碱液流量均在约束范围内；
+采用CBF安全滤波后（红色曲线），系统在早期即主动调整电流策略——通过适当提高电流促进氧气产率，从而"稀释"气相氢气，使HTO始终保持在更低水平。
+这一结果直接验证了CBF框架所揭示的反直觉安全控制策略的有效性。
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=0.98\textwidth]{figures/multi_stack_cbf_comparison.png}
+  \caption{低功率HTO工况下安全投影与CBF的闭环对比}
+  \label{fig:multi_stack_cbf_comparison}
+\end{figure}
+
+\subsection{消融实验}
+
+\subsubsection{模型架构对比}
+
+为验证网络架构对控制性能的影响，对比了TCN与MLP两种主干网络。
+TCN利用空洞卷积构建指数级增长的有效感受野，更好地捕捉动作序列中的长程时序依赖。
+而MLP虽然结构简单，但缺乏显式的时间维度建模能力。
+对比结果显示，在相同的隐藏层维度与训练轮数下，TCN的功率跟踪RMSE比MLP降低约15\%，
+且生成的动作序列平滑性更优，电流切换幅度更小，有利于延长执行机构寿命。
+综合考虑性能与模型复杂度，故选用TCN作为扩散策略的主干网络。
+
+\subsubsection{采样数量影响}
+
+扩散模型推理时需要从噪声中采样多条候选动作序列，采样数量直接影响动作选择的多样性与计算开销。
+进一步分析发现，当采样数从16增加到64时，样本量的增加覆盖了多样的动作模式，功率跟踪误差显著下降。
+当采样数继续增加到128乃至256时，性能提升趋于饱和，而推理时间近似线性增长。
+因此，64--128个样本是四槽AWE控制任务中性能与计算效率的较优平衡点，
+后续实验均采用64个样本评估候选动作。

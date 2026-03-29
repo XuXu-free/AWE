@@ -15,7 +15,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 
 from plant.multi_stack_simulator import MultiStackSimulator
 from controller.multi_stack.nmpc_controller import MultiStackNMPCController
-from controller.multi_stack.model_controller import MultiStackModelController, MultiStackModelCBFController
+from controller.multi_stack.model_controller import MultiStackModelController
 from controller.multi_stack.model_dynamic_controller import MultiStackModelDynamicController
 
 def add_measurement_noise(state):
@@ -29,7 +29,7 @@ def load_december_profile():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
     
-    profile_path = os.path.join(project_root, 'output', 'power', 'wind', 'wind_power_2025-02_1min.csv')
+    profile_path = os.path.join(project_root, 'output', 'power', 'wind', 'wind_power_2025-12_1min.csv')
     
     if not os.path.exists(profile_path):
         raise FileNotFoundError(f"December profile not found at {profile_path}")
@@ -240,10 +240,6 @@ def run_test(controller_type='nmpc', model_type='tcn', duration=86400):
         ctrl = MultiStackModelController(dt=dt_ctrl, horizon=horizon, model_type=model_type, 
                                              model_path=model_path, stats_path=stats_path)
         print(f"Using Model Controller ({model_type})")
-    elif controller_type == 'model_cbf':
-        ctrl = MultiStackModelCBFController(dt=dt_ctrl, horizon=horizon, model_type=model_type, 
-                                             model_path=model_path, stats_path=stats_path)
-        print(f"Using Model CBF Controller ({model_type})")
     elif controller_type == 'model_dynamic':
         ctrl = MultiStackModelDynamicController(dt=dt_ctrl, horizon=horizon, model_type=model_type, 
                                              model_path=model_path, stats_path=stats_path)
@@ -513,7 +509,7 @@ def save_data_csv(history, output_dir, filename):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run Multi-Stack Test')
-    parser.add_argument('--controller', type=str, default='model', choices=['nmpc', 'model', 'model_dynamic', 'model_cbf'], help='Controller type')
+    parser.add_argument('--controller', type=str, default='model', choices=['nmpc', 'model', 'model_dynamic'], help='Controller type')
     parser.add_argument('--model_type', type=str, default='flow_tcn', 
                         choices=['diffusion_mlp', 'diffusion_tcn', 'flow_mlp', 'flow_tcn', 'flow_mlp_hardflow', 'flow_tcn_hardflow', 'mlp', 'tcn', 'flow_matching'], 
                         help='Model type (only for model controller)')

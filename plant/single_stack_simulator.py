@@ -11,7 +11,7 @@ class SingleStackSimulator(BaseSimulator):
         self.I_rated = 7800.0
         self.N_cell = 368
         self.A_cell = 2.0
-        self.P_sys = 1.6e6  # 1.6 MPa
+        self.P_sys = 1.8e6  # 1.8 MPa
         self.delta_P = 0.01 * self.P_sys
         
         # Electrochemical

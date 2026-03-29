@@ -1,24 +1,44 @@
-% !TEX root = ../main.tex
+% !TeX root = ../main.tex
 
 \begin{abstract}[zh]
-  亲亲亲中文摘要应该将学位论文的内容要点简短明了地表达出来，应该包含论文中的基本信息，
-  体现科研工作的核心思想。摘要内容应涉及本项科研工作的目的和意义、研究方法、研究
-  成果、结论及意义。注意突出学位论文中具有创新性的成果和新见解的部分。摘要中不宜
-  使用公式、化学结构式、图表和非公知公用的符号和术语，不标注引用文献编号。硕士学
-  位论文中文摘要字数为 500 字左右，博士学位论文中文摘要字数为 800 字左右。英文摘
-  要内容应与中文摘要内容一致。
+  碱性电解水（AWE）是大规模绿氢制备的主流技术，但风电、光伏等波动性电源的并网
+  对多槽并联AWE系统的协调控制提出了更高要求。传统非线性模型预测控制（NMPC）
+  计算开销大，难以满足实时性需求；而纯数据驱动的学习方法又缺乏对温度、氢气纯度
+  等安全约束的严格保证。针对上述问题，以四槽并联AWE系统为研究对象，提出了
+  基于扩散模型的安全预测控制框架。
 
-  摘要页的下方注明本文的关键词（4 \textasciitilde{} 6 个）。
+  研究首先建立了涵盖电化学、热力学与氢气传输的高保真仿真模型。
+  在此基础上，以NMPC为专家控制器生成训练数据并训练Diffusion TCN控制策略，
+  进而引入投影算子和控制障碍函数（CBF）的安全约束保证机制，
+  将无约束策略输出修正为可行动作。实验结果表明，
+  所提策略的功率跟踪精度接近NMPC基线，推理时间从秒级降至约50毫秒，
+  实现了近两个数量级的计算加速，且HTO始终低于2\%的安全阈值，
+  温度、电压与功率约束满足率均达到100\%。
+
+  \textbf{关键词：}碱性电解水制氢；多槽系统；扩散模型；模型预测控制；投影算子；控制障碍函数；安全约束
 \end{abstract}
 
 \begin{abstract}[en]
-  Shanghai Jiao Tong University (SJTU) is a key university in China. SJTU was
-  founded in 1896. It is one of the oldest universities in China. The University
-  has nurtured large numbers of outstanding figures include JIANG Zemin, DING
-  Guangen, QIAN Xuesen, Wu Wenjun, WANG An, etc.
+  Alkaline Water Electrolysis (AWE) is the mainstream technology for large-scale
+  green hydrogen production. However, the integration of variable renewable energy
+  sources such as wind and solar power poses higher demands on the
+  coordinated control of multi-stack parallel AWE systems. Traditional Nonlinear
+  Model Predictive Control (NMPC) suffers from heavy computational overhead and
+  fails to meet real-time requirements, while purely data-driven approaches lack
+  strict guarantees for safety constraints such as temperature and hydrogen purity.
+  To address these issues, this study focuses on four-stack parallel AWE systems,
+  proposing a safe predictive control framework based on diffusion models.
 
-  SJTU has beautiful campuses, Bao Zhaolong Library, Various laboratories. It
-  has been actively involved in international academic exchange programs. It is
-  the center of CERNet in east China region, through computer networks, SJTU has
-  faster and closer connection with the world.
+  First, we establish a high-fidelity simulation model covering electrochemistry,
+  thermodynamics, and hydrogen transport. Then, we employ NMPC as an expert
+  controller to generate training data and train a Diffusion TCN control
+  policy on the resulting trajectories.
+  Finally, we introduce safety projection operators and Control Barrier Functions (CBF)
+  to map the unconstrained policy outputs into feasible actions. Experimental results show that the proposed strategy achieves
+  power tracking accuracy close to the NMPC baseline while reducing inference
+  time from seconds to about 50 milliseconds, yielding a computational speedup of nearly two orders of magnitude. HTO remains strictly below the 2\% safety
+  threshold, and the temperature, voltage, and power constraints are fully satisfied.
+
+  \textbf{Keywords:} AWE; Multi-Stack Electrolysis; Diffusion Models;
+  Model Predictive Control; Projection Operator; Control Barrier Function; Safety Constraints
 \end{abstract}

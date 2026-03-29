@@ -1,0 +1,16 @@
+Single-Stack AWE Controller Performance Comparison
+======================================================================
+
+Power Tracking RMSE (MW)
+  NMPC:           0.1522
+  Model Ctrl:     0.1507
+  Improvement:    1.01%
+
+Temperature Tracking RMSE (°„C, Target: 80°„C)
+  NMPC:           0.1483
+  Model Ctrl:     0.0264
+  Improvement:    82.22%
+
+Safety Metrics
+  HTO Max (%)     NMPC: 1.0691, Model: 1.0645
+  Voltage Max (V) NMPC: 1.9522, Model: 1.9511

@@ -56,7 +56,7 @@ class SingleStackNMPCController:
         self.T_max = 363.15
         self.I_min = 0.0
         self.I_max = 7800.0 * 1.2
-        self.v_lye_min = 0.0
+        self.v_lye_min = 0.01
         self.v_lye_max = 0.1
         self.v_c_min = 0.0
         self.v_c_max = 1.0
@@ -196,10 +196,6 @@ class SingleStackNMPCController:
             # 2. Temperature Regulation
             obj += self.lambda_temp * (T_s_k - T_ref_val)**2
 
-            # 3. H2 Production (Maximize - negative sign for minimization)
-            # H2 production rate: eta * n_cells * I / (2F) for single stack
-            h2_prod_rate = eta * self.n_cells * I_k / (2 * self.F)
-            obj -= self.lambda_prod * self.dt * h2_prod_rate
 
             # 4. Smoothness
             if k == 0:

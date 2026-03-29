@@ -1,0 +1,151 @@
+% !TEX root = ../main.tex
+
+\chapter{参数表}
+\label{app:params}
+
+本章将四槽AWE系统的主要参数按子模型分类汇总，包括系统主要参数、电化学模型参数、传热与冷却模型参数、氢气溶解与跨膜传输参数、分离器几何与时间常数参数以及NMPC时间尺度与目标函数权重参数。具体取值见表~\ref{tab:system_params} 至表~\ref{tab:params_nmpc}，其中表~\ref{tab:params_electrochem}、表~\ref{tab:params_thermal}、表~\ref{tab:params_mass_transfer}、表~\ref{tab:params_separator} 依次给出各子模型详细参数。
+
+\begin{table}[!htbp]
+  \centering
+  \caption{四槽AWE系统主要参数}
+  \label{tab:system_params}
+  \small
+  \begin{tabular}{@{}l c l@{}}
+    \toprule
+    \textbf{参数} & \textbf{数值} & \textbf{单位} \\
+    \midrule
+    电解槽数量 $N$ & 4 & - \\
+    电芯数 $N_{cell}$ & 368 & - \\
+    电芯面积 $A_{cell}$ & 2.0 & $\mathrm{m}^2$ \\
+    额定电流 $I_{rated}$ & 7800 & A \\
+    系统压力 $P_{sys}$ & 1.6 & MPa \\
+    目标温度 $T_{ref}$ & 353.15 & K (80°C) \\
+    温度约束 & 293.15--363.15 & K (20--90°C) \\
+    HTO约束 & $<2$ & \% \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[!htbp]
+  \centering
+  \caption{电化学模型参数取值}
+  \label{tab:params_electrochem}
+  \small
+  \begin{tabular}{@{}l c l@{}}
+    \toprule
+    \textbf{参数} & \textbf{数值} & \textbf{单位} \\
+    \midrule
+    可逆电压 $U_{rev}$ & 1.229 & V \\
+    热中性电压 $U_{th}$ & 1.481 & V \\
+    法拉第常数 $F$ & 96485 & C/mol \\
+    \addlinespace
+    欧姆过电位参数 $r_1$ & $3.202 \times 10^{-5}$ & - \\
+    欧姆过电位参数 $r_2$ & $8.970 \times 10^{-8}$ & - \\
+    欧姆过电位参数 $r_3$ & $-4.193 \times 10^{-12}$ & - \\
+    \addlinespace
+    活化过电位参数 $s$ & $7.572 \times 10^{-2}$ & - \\
+    活化过电位参数 $t_1$ & $-1.070 \times 10^{-1}$ & - \\
+    活化过电位参数 $t_2$ & 14.43 & - \\
+    活化过电位参数 $t_3$ & 38.8 & - \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[!htbp]
+  \centering
+  \caption{传热与冷却模型参数取值}
+  \label{tab:params_thermal}
+  \small
+  \begin{tabular}{@{}l c l@{}}
+    \toprule
+    \textbf{参数} & \textbf{数值} & \textbf{单位} \\
+    \midrule
+    对流换热系数 $\sigma_s$ & 1000 & W/K \\
+    表面发射率 $\epsilon_s$ & 0.8 & - \\
+    Stefan--Boltzmann 常数 $\sigma_b$ & $5.67 \times 10^{-8}$ & W/($\mathrm{m}^2\cdot$K$^4$) \\
+    电解槽表面积 $A_{stack}$ & 80 & $\mathrm{m}^2$ \\
+    \addlinespace
+    碱液比热容 $c_{lye}$ & 3200 & J/(kg$\cdot$K) \\
+    碱液密度 $\rho_{lye}$ & 1280 & kg/$\mathrm{m}^3$ \\
+    \addlinespace
+    换热器传热系数 $k_{he}$ & 960 & W/($\mathrm{m}^2\cdot$K) \\
+    换热器面积 $A_{he}$ & 240 & $\mathrm{m}^2$ \\
+    换热器热容 $C_{he}$ & $5 \times 10^{6}$ & J/K \\
+    冷却回路热容 $C_c$ & $5 \times 10^{6}$ & J/K \\
+    冷却水比热容 $c_{cw}$ & 4200 & J/(kg$\cdot$K) \\
+    冷却水密度 $\rho_{cw}$ & 1000 & kg/$\mathrm{m}^3$ \\
+    \addlinespace
+    分离器热容 $C_{sep}$（单槽） & $1 \times 10^{7}$ & J/K \\
+    分离器热容 $C_{sep}$（四槽） & $5.193 \times 10^{7}$ & J/K \\
+    分离器对流系数 $\sigma_{sep}$（单槽） & 50 & W/K \\
+    分离器对流系数 $\sigma_{sep}$（四槽） & 200 & W/K \\
+    分离器发射率 $\epsilon_{sep}$ & 0.8 & - \\
+    分离器表面积 $A_{sep}$ & 40 & $\mathrm{m}^2$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[!htbp]
+  \centering
+  \caption{氢气溶解与跨膜传输参数取值}
+  \label{tab:params_mass_transfer}
+  \small
+  \begin{tabular}{@{}l c l@{}}
+    \toprule
+    \textbf{参数} & \textbf{数值} & \textbf{单位} \\
+    \midrule
+    水密度 $\rho_{H_2O}$ & 1000 & kg/$\mathrm{m}^3$ \\
+    水摩尔质量 $M_{H_2O}$ & $18 \times 10^{-3}$ & kg/mol \\
+    大气压 $p_{atm}$ & 101325 & Pa \\
+    Henry 常数 $H_{H_2}$ & $7.1698 \times 10^{4}\cdot p_{atm}$ & Pa \\
+    Secchenov 常数 $K_{H_2}$ & 3.14 & - \\
+    KOH 质量分数 $w_{lye}$ & 0.30 & - \\
+    \addlinespace
+    有效扩散系数 $D_{eff}$ & $8.569 \times 10^{-10}$ & $\mathrm{m}^2$/s \\
+    有效渗透率 $K_{eff}$ & $2 \times 10^{-16}$ & $\mathrm{m}^2$ \\
+    碱液粘度 $\mu_{lye}$ & $8.76 \times 10^{-4}$ & Pa$\cdot$s \\
+    隔膜厚度 $\delta$ & 500 & $\mu$m \\
+    压差 $\Delta P$ & $0.01 \cdot P_{sys}$ & Pa \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[!htbp]
+  \centering
+  \caption{分离器几何与时间常数参数取值}
+  \label{tab:params_separator}
+  \small
+  \begin{tabular}{@{}l c l@{}}
+    \toprule
+    \textbf{参数} & \textbf{数值} & \textbf{单位} \\
+    \midrule
+    阳极室体积 $V_{an}$ & 2.5 & $\mathrm{m}^3$ \\
+    分离时间常数 $\tau_{sep}$ & 60 & s \\
+    分离器总体积 $V_{sep}$ & 10.288 & $\mathrm{m}^3$ \\
+    分离器气相体积 $V_{sep,gas}$ & 6.173 & $\mathrm{m}^3$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[!htbp]
+  \centering
+  \caption{NMPC时间尺度与目标函数权重参数取值}
+  \label{tab:params_nmpc}
+  \small
+  \begin{tabular}{@{}l c l@{}}
+    \toprule
+    \textbf{参数} & \textbf{数值} & \textbf{单位} \\
+    \midrule
+    控制步长 $\Delta t$ & 60 & s \\
+    仿真步长 $\delta t$ & 0.2 & s \\
+    预测时域 $N_p$ & 5 & - \\
+    每步子步数 $N_s$ & 300 & - \\
+    \addlinespace
+    跟踪权重 $\lambda_{track}$ & 1.2 & - \\
+    温度权重 $\lambda_{temp}$ & 0.15 & - \\
+    电流平滑权重 $\lambda_I$ & $2 \times 10^{-4}$ & - \\
+    碱液流量权重 $\lambda_{lye}$ & 25000 & - \\
+    冷却水流量权重 $\lambda_c$ & 0.5 & - \\
+    \bottomrule
+  \end{tabular}
+\end{table}
