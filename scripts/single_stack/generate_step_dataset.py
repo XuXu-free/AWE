@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from tqdm import tqdm
 import argparse
+from joblib import Parallel, delayed
 
 # Add parent directory to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
@@ -438,20 +439,23 @@ def main():
                         help='Max retries per experiment on failure (default: 2)')
     parser.add_argument('--skip_plots', action='store_true',
                         help='Skip plot generation (default: generate plots)')
+    parser.add_argument('--max_workers', type=int, default=-1,
+                        help='Number of parallel workers (default: -1 for all cores)')
     args = parser.parse_args()
 
     # Parse power levels
     power_levels = [float(x) * 1e6 for x in args.power_levels.split(',')]
 
-    # Output directory
-    output_dir = os.path.abspath(os.path.join(
+    # Base output directory
+    output_base_dir = os.path.abspath(os.path.join(
         os.path.dirname(__file__), '..', '..',
-        'output', 'single_stack', 'dataset', 'step'
+        'output', 'single_stack', 'dataset'
     ))
-    os.makedirs(output_dir, exist_ok=True)
 
-    # Generate unified timestamp
+    # Generate unified timestamp and create subdirectory
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = os.path.join(output_base_dir, f'step_{timestamp}')
+    os.makedirs(output_dir, exist_ok=True)
 
     print("=" * 60)
     print("Step Signal Dataset Generation for Single-Stack AWE")
@@ -467,49 +471,49 @@ def main():
     print(f"  Timestamp: {timestamp}")
     print("=" * 60)
 
-    # Run experiments
+    # Run experiments in parallel using joblib
+    print(f"\nStarting parallel execution with {args.max_workers} workers...")
+
+    # Prepare arguments for each experiment
+    experiment_results = Parallel(n_jobs=args.max_workers, backend='loky')(
+        delayed(run_step_experiment)(
+            exp_id=exp_id,
+            timestamp=timestamp,
+            n_steps=args.n_steps,
+            dt_ctrl=args.dt_ctrl,
+            horizon=args.horizon,
+            sim_dt=args.sim_dt,
+            T_ref=args.T_ref,
+            output_dir=output_dir,
+            power_levels=power_levels,
+            min_duration=args.step_min_duration,
+            max_duration=args.step_max_duration,
+            max_retries_on_failure=args.max_retries
+        )
+        for exp_id in range(args.n_experiments)
+    )
+
+    # Process results
     successful_experiments = 0
     failed_experiments = 0
 
-    for exp_id in range(args.n_experiments):
-        print(f"\n[{exp_id + 1}/{args.n_experiments}] Running experiment...")
+    for exp_id, result in enumerate(experiment_results):
+        if result is not None:
+            # Save data
+            csv_file = save_experiment_data(result, output_dir, timestamp, exp_id)
 
-        # Retry loop for experiment
-        for retry in range(args.max_retries + 1):
-            result = run_step_experiment(
-                exp_id=exp_id,
-                timestamp=timestamp,
-                n_steps=args.n_steps,
-                dt_ctrl=args.dt_ctrl,
-                horizon=args.horizon,
-                sim_dt=args.sim_dt,
-                T_ref=args.T_ref,
-                output_dir=output_dir,
-                power_levels=power_levels,
-                min_duration=args.step_min_duration,
-                max_duration=args.step_max_duration
-            )
+            # Generate plot
+            if csv_file and not args.skip_plots:
+                try:
+                    df = pd.read_csv(csv_file)
+                    plot_experiment(df, output_dir, timestamp, exp_id)
+                except Exception as e:
+                    print(f"  Plot generation failed for exp {exp_id}: {e}")
 
-            if result is not None:
-                # Save data
-                csv_file = save_experiment_data(result, output_dir, timestamp, exp_id)
-
-                # Generate plot
-                if csv_file and not args.skip_plots:
-                    try:
-                        df = pd.read_csv(csv_file)
-                        plot_experiment(df, output_dir, timestamp, exp_id)
-                    except Exception as e:
-                        print(f"  Plot generation failed: {e}")
-
-                successful_experiments += 1
-                break
-            else:
-                if retry < args.max_retries:
-                    print(f"  Retrying experiment {exp_id} (attempt {retry + 2}/{args.max_retries + 1})...")
-                else:
-                    print(f"  Experiment {exp_id} failed after all retries, skipping...")
-                    failed_experiments += 1
+            successful_experiments += 1
+        else:
+            print(f"  Experiment {exp_id} failed, skipping...")
+            failed_experiments += 1
 
     print("\n" + "=" * 60)
     print("Generation Complete")

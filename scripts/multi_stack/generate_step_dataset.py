@@ -2,10 +2,6 @@
 Generate step signal dataset for multi-stack AWE system.
 Generates NMPC expert trajectories using random step power references and random initial conditions.
 """
-"""
-Generate step signal dataset for multi-stack AWE system.
-Generates NMPC expert trajectories using random step power references and random initial conditions.
-"""
 import os
 import sys
 import numpy as np
@@ -16,8 +12,7 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from tqdm import tqdm
 import argparse
-import multiprocessing
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from joblib import Parallel, delayed
 
 # Add parent directory to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
@@ -531,17 +526,19 @@ def main():
     # Parse power levels
     power_levels = [float(x) * 1e6 for x in args.power_levels.split(',')]
 
-    # Output directory
-    output_dir = os.path.abspath(os.path.join(
+    # Base output directory
+    output_base_dir = os.path.abspath(os.path.join(
         os.path.dirname(__file__), '..', '..',
-        'output', 'multi_stack', 'dataset', 'step'
+        'output', 'multi_stack', 'dataset'
     ))
+
+    # Generate unified timestamp and create subdirectory
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = os.path.join(output_base_dir, f'step_{timestamp}')
     os.makedirs(output_dir, exist_ok=True)
 
-    # Generate unified timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
     # Determine max workers
+    import multiprocessing
     if args.max_workers <= 0:
         cpu_count = multiprocessing.cpu_count()
         # Limit to 4 or half of CPUs, whichever is smaller, to avoid memory issues
@@ -584,40 +581,21 @@ def main():
             'skip_plots': args.skip_plots
         })
 
-    # Run experiments in parallel
-    successful_experiments = 0
-    failed_experiments = 0
+    # Run experiments in parallel using joblib
+    print(f"\nStarting parallel execution with {max_workers} workers...")
 
     if max_workers == 1:
         # Sequential execution for debugging
-        for args_dict in task_args:
-            if run_step_experiment(args_dict):
-                successful_experiments += 1
-            else:
-                failed_experiments += 1
+        results = [run_step_experiment(args_dict) for args_dict in task_args]
     else:
-        # Parallel execution
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all tasks
-            future_to_exp = {
-                executor.submit(run_step_experiment, args_dict): args_dict['exp_id']
-                for args_dict in task_args
-            }
+        # Parallel execution using joblib
+        results = Parallel(n_jobs=max_workers, backend='loky')(
+            delayed(run_step_experiment)(args_dict) for args_dict in task_args
+        )
 
-            # Collect results as they complete
-            for future in as_completed(future_to_exp):
-                exp_id = future_to_exp[future]
-                try:
-                    result = future.result()
-                    if result:
-                        successful_experiments += 1
-                        print(f"[Exp {exp_id:03d}] Completed and saved successfully")
-                    else:
-                        failed_experiments += 1
-                        print(f"[Exp {exp_id:03d}] Failed")
-                except Exception as e:
-                    print(f"[Exp {exp_id:03d}] Exception: {e}")
-                    failed_experiments += 1
+    # Process results
+    successful_experiments = sum(1 for r in results if r)
+    failed_experiments = len(results) - successful_experiments
 
     print("\n" + "=" * 60)
     print("Generation Complete")

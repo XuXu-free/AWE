@@ -13,8 +13,7 @@ from datetime import datetime
 from tqdm import tqdm
 import argparse
 import glob
-from concurrent.futures import ProcessPoolExecutor, as_completed
-import multiprocessing
+from joblib import Parallel, delayed
 
 # Add parent directory to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
@@ -395,16 +394,21 @@ def main():
     T_ref = args.T_ref
 
     # Determine max workers
+    import multiprocessing
     if args.max_workers <= 0:
         max_workers = multiprocessing.cpu_count()
     else:
         max_workers = args.max_workers
 
-    # Output directory
-    output_dir = os.path.abspath(os.path.join(
+    # Base output directory
+    output_base_dir = os.path.abspath(os.path.join(
         os.path.dirname(__file__), '..', '..',
-        'output', 'single_stack', 'dataset', 'wind'
+        'output', 'single_stack', 'dataset'
     ))
+
+    # Generate unified timestamp and create subdirectory
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = os.path.join(output_base_dir, f'wind_{timestamp}')
     os.makedirs(output_dir, exist_ok=True)
 
     # Wind data directory
@@ -415,9 +419,6 @@ def main():
             os.path.dirname(__file__), '..', '..',
             'output', 'power', 'wind'
         ))
-
-    # Generate unified timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # Get month files
     month_files = sorted(glob.glob(os.path.join(wind_dir, 'wind_power_2025-*_1min.csv')))
@@ -463,38 +464,21 @@ def main():
             'skip_warmup': args.skip_warmup
         })
 
-    # Run parallel processing
-    successful = 0
-    failed = 0
+    # Run parallel processing using joblib
+    print(f"\nStarting parallel execution with {max_workers} workers...")
 
     if max_workers == 1:
         # Sequential execution for debugging
-        for args_dict in task_args:
-            if process_single_month(args_dict):
-                successful += 1
-            else:
-                failed += 1
+        results = [process_single_month(args_dict) for args_dict in task_args]
     else:
-        # Parallel execution
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all tasks
-            future_to_month = {
-                executor.submit(process_single_month, args_dict): args_dict['month_idx']
-                for args_dict in task_args
-            }
+        # Parallel execution using joblib
+        results = Parallel(n_jobs=max_workers, backend='loky')(
+            delayed(process_single_month)(args_dict) for args_dict in task_args
+        )
 
-            # Collect results as they complete
-            for future in as_completed(future_to_month):
-                month_idx = future_to_month[future]
-                try:
-                    result = future.result()
-                    if result:
-                        successful += 1
-                    else:
-                        failed += 1
-                except Exception as e:
-                    print(f"[Month {month_idx:03d}] Exception: {e}")
-                    failed += 1
+    # Process results
+    successful = sum(1 for r in results if r)
+    failed = len(results) - successful
 
     print("\n" + "=" * 60)
     print("生成完成")
