@@ -24,7 +24,8 @@ class SingleStackNMPCController:
         self.t1 = -1.070e-1
         self.t2 = 14.43
         self.t3 = 38.8
-        
+        self.F = 96485.0  # Faraday constant (C/mol)
+
         # Thermal Parameters
         self.C_s_i = 3.450e7
         self.C_sep = 1e7
@@ -132,7 +133,7 @@ class SingleStackNMPCController:
         # Calculate HTO %
         hto_pct = (n_gas_k * self.R * T_sep_sub) / (self.P_sys * self.V_sep_gas) * 100
 
-        return T_s_in_sub, T_s_sub, T_sep_sub, T_c_out_sub, Power_k, V_cell, hto_pct
+        return T_s_in_sub, T_s_sub, T_sep_sub, T_c_out_sub, Power_k, V_cell, hto_pct, eta
 
     def _setup_solver(self):
         # Decision Variables Structure:
@@ -184,7 +185,7 @@ class SingleStackNMPCController:
             v_lye_k = uk[1]
             v_c_k = uk[2]
             
-            T_s_in_k, T_s_k, T_sep_k, T_c_out_k, Power_k, V_cell, hto_pct = self._dynamics_step(
+            T_s_in_k, T_s_k, T_sep_k, T_c_out_k, Power_k, V_cell, hto_pct, eta = self._dynamics_step(
                 T_s_in_k, T_s_k, T_sep_k, T_c_out_k, I_k, v_lye_k, v_c_k, n_gas
             )
             
@@ -194,8 +195,13 @@ class SingleStackNMPCController:
             
             # 2. Temperature Regulation
             obj += self.lambda_temp * (T_s_k - T_ref_val)**2
-            
-            # 3. Smoothness
+
+            # 3. H2 Production (Maximize - negative sign for minimization)
+            # H2 production rate: eta * n_cells * I / (2F) for single stack
+            h2_prod_rate = eta * self.n_cells * I_k / (2 * self.F)
+            obj -= self.lambda_prod * self.dt * h2_prod_rate
+
+            # 4. Smoothness
             if k == 0:
                 dI = I_k - I_0
             else:
@@ -310,7 +316,7 @@ class SingleStackNMPCController:
             v_lye_k = uk[1]
             v_c_k = uk[2]
 
-            T_s_in_k, T_s_k, T_sep_k, T_c_out_k, _, _, _ = self._dynamics_step(
+            T_s_in_k, T_s_k, T_sep_k, T_c_out_k, _, _, _, _ = self._dynamics_step(
                 T_s_in_k, T_s_k, T_sep_k, T_c_out_k, I_k, v_lye_k, v_c_k, n_gas_val
             )
             pred_states.append(ca.vertcat(T_s_in_k, T_s_k, T_sep_k, T_c_out_k))

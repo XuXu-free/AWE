@@ -27,7 +27,8 @@ class MultiStackNMPCController(BaseController):
         self.t1 = -1.070e-1
         self.t2 = 14.43
         self.t3 = 38.8
-        
+        self.F = 96485.0  # Faraday constant (C/mol)
+
         # Thermal Parameters
         self.C_s_i = 3.450e7  # Stack Heat Capacity
         self.C_sep = 5.193e7  # Separator Heat Capacity
@@ -138,8 +139,8 @@ class MultiStackNMPCController(BaseController):
         
         # Calculate HTO %
         hto_pct = (n_gas_k * self.R * T_sep_sub) / (self.P_sys * self.V_sep_gas) * 100
-        
-        return T_s_in_sub, T_s_sub, T_sep_sub, T_c_out_sub, Power_k_vec, V_cell, hto_pct
+
+        return T_s_in_sub, T_s_sub, T_sep_sub, T_c_out_sub, Power_k_vec, V_cell, hto_pct, eta
 
     def _setup_solver(self):
         import os
@@ -193,7 +194,7 @@ class MultiStackNMPCController(BaseController):
             v_c_k = uk[2*self.n_stacks]
             
             # --- System Dynamics (Simplified Thermal Model for Control) ---
-            T_s_in_k, T_s_k, T_sep_k, T_c_out_k, Power_k_vec, V_cell, hto_pct = self._dynamics_step(
+            T_s_in_k, T_s_k, T_sep_k, T_c_out_k, Power_k_vec, V_cell, hto_pct, eta = self._dynamics_step(
                 T_s_in_k, T_s_k, T_sep_k, T_c_out_k, I_k, v_lye_k, v_c_k, n_gas
             )
             
@@ -206,9 +207,11 @@ class MultiStackNMPCController(BaseController):
             # 2. Temperature Regulation (All stacks)
             obj += self.lambda_temp * ca.sum1((T_s_k - T_ref_val)**2)
             
-            # 3. Production (Maximize)
-            # obj -= self.lambda_prod * ca.sum1(I_k) * 1e-4
-            
+            # 3. H2 Production (Maximize - negative sign for minimization)
+            # H2 production rate: eta * n_cells * I / (2F) for each stack
+            h2_prod_rate = eta * self.n_cells * I_k / (2 * self.F)
+            obj -= self.lambda_prod * self.dt * ca.sum1(h2_prod_rate)
+
             # 4. Smoothness & Min Effort
             # I: Penalize rate of change (adjacent steps)
             if k == 0:
@@ -348,7 +351,7 @@ class MultiStackNMPCController(BaseController):
             v_c_k = uk[2*self.n_stacks]
             
             # Dynamics (Copy of above)
-            T_s_in_k, T_s_k, T_sep_k, T_c_out_k, _, _, _ = self._dynamics_step(
+            T_s_in_k, T_s_k, T_sep_k, T_c_out_k, _, _, _, _ = self._dynamics_step(
                 T_s_in_k, T_s_k, T_sep_k, T_c_out_k, I_k, v_lye_k, v_c_k, n_gas
             )
             
