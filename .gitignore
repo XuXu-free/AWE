@@ -218,3 +218,6 @@ output/
 .paper/
 .claude/
 .omc/
+
+# Generated dataset figures
+dataset/figure/
