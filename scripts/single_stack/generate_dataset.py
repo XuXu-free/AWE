@@ -342,28 +342,70 @@ def run_warmup_phase(sim, controller, full_profile, dt_ctrl, horizon, sim_dt, T_
         traceback.print_exc()
         return I_prev, v_lye_prev, v_c_prev
 
+def get_latest_timestamp_dir(base_dir):
+    """Find the latest timestamped subdirectory in base_dir."""
+    if not os.path.exists(base_dir):
+        return None
+    subdirs = [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))]
+    # Filter directories matching timestamp pattern (YYYYMMDD_HHMMSS)
+    valid_dirs = []
+    for d in subdirs:
+        try:
+            datetime.strptime(d, "%Y%m%d_%H%M%S")
+            valid_dirs.append(d)
+        except ValueError:
+            continue
+    if not valid_dirs:
+        return None
+    # Return the latest (by modification time)
+    return max(valid_dirs, key=lambda d: os.path.getmtime(os.path.join(base_dir, d)))
+
 def generate_dataset():
     # Parse arguments
     parser = argparse.ArgumentParser(description='Generate NMPC dataset for single-stack AWE.')
     parser.add_argument('--continue', dest='continue_gen', action='store_true', help='Continue from existing dataset if available')
+    parser.add_argument('--output-dir', type=str, default=None, help='Specific output directory to use (for --continue)')
     args = parser.parse_args()
-    
+
     # Configuration
     # dt_ctrl = 1 min = 60 s
     dt_ctrl = 60.0
-    
-    # Output dir relative to script
-    output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'output', 'single_stack', 'dataset'))
-    
+
+    # Base output directory
+    output_base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'output', 'single_stack', 'dataset'))
+
+    # Determine output directory
+    if args.output_dir:
+        # User specified directory
+        output_dir = args.output_dir
+        timestamp = os.path.basename(os.path.normpath(output_dir))
+        print(f"Using specified output directory: {output_dir}")
+    elif args.continue_gen:
+        # Try to find latest timestamped directory
+        latest_dir = get_latest_timestamp_dir(output_base_dir)
+        if latest_dir:
+            output_dir = os.path.join(output_base_dir, latest_dir)
+            timestamp = latest_dir
+            print(f"Continuing from latest dataset: {latest_dir}")
+        else:
+            print("No existing timestamped dataset found. Starting fresh.")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_dir = os.path.join(output_base_dir, timestamp)
+    else:
+        # Fresh run - create new timestamped directory
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = os.path.join(output_base_dir, timestamp)
+
     # NMPC parameters
     horizon = 5
-    sim_dt = 0.2 # 0.2s simulation step
+    sim_dt = 0.2  # 0.2s simulation step
     T_ref = 353.15  # 80°C (Kelvin)
 
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-        
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        print(f"Created output directory: {output_dir}")
+    else:
+        print(f"Using existing output directory: {output_dir}")
     
     # Load Real Profile
     try:
@@ -397,8 +439,8 @@ def generate_dataset():
     start_step = 0
     save_every_steps = max(1, int(3600 / dt_ctrl)) # Save every hour
     
-    # Check for existing data to resume
-    csv_files = [f for f in os.listdir(output_dir) if f.endswith('.csv') and 'nmpc_dataset' in f]
+    # Check for existing data to resume (only in current timestamped directory)
+    csv_files = [f for f in os.listdir(output_dir) if f.endswith('.csv') and 'nmpc_dataset' in f and not f.startswith('warmup')]
     if csv_files and args.continue_gen:
         latest_csv_name = max(csv_files, key=lambda x: os.path.getctime(os.path.join(output_dir, x)))
         latest_csv_path = os.path.join(output_dir, latest_csv_name)

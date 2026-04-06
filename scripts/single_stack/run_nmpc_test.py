@@ -24,32 +24,38 @@ def add_measurement_noise(state):
     """
     return np.copy(state)
 
-def load_december_profile():
+def load_wind_profile(month='02'):
+    """加载指定月份的风电数据"""
     # Get project root
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
-    
-    profile_path = os.path.join(project_root, 'output', 'power', 'wind', 'wind_power_2025-02_1min.csv')
-    
+
+    profile_path = os.path.join(project_root, 'output', 'power', 'wind', f'wind_power_2025-{month}_1min.csv')
+
     if not os.path.exists(profile_path):
-        raise FileNotFoundError(f"December profile not found at {profile_path}")
-        
-    print(f"Loading December profile from {profile_path}...")
+        raise FileNotFoundError(f"Wind profile not found at {profile_path}")
+
+    print(f"Loading wind profile from {profile_path}...")
     df = pd.read_csv(profile_path)
     # Scale down for single stack (0.25 of total)
     return df['P_ref'].values * 0.25
 
-def run_warmup_phase(sim, ctrl, history, last_action, sim_dt, output_dir, filename_prefix="warmup", T_ref=358.15):
-    """ 
+# 保持向后兼容
+def load_december_profile():
+    """向后兼容：加载02月份数据"""
+    return load_wind_profile('02')
+
+def run_warmup_phase(sim, ctrl, history, last_action, sim_dt, output_dir, filename_prefix="warmup", T_ref=358.15, month='02'):
+    """
     Run a warmup phase similar to generate_dataset.py.
     Gradually ramps up power from 2MW to the start of the profile.
     Uses the controller to determine actions.
     """
     warmup_duration = 4 * 60 * 60 # 4h
     warmup_steps = int(warmup_duration / sim_dt)
-    
+
     # Load profile to determine end target
-    full_profile = load_december_profile()
+    full_profile = load_wind_profile(month)
     
     P_warmup_start = 2.0e6 # 2MW
     P_warmup_end = full_profile[0] # Target is start of real profile
@@ -243,15 +249,15 @@ def calculate_metrics(history, duration, output_dir, filename):
     print(f"Metrics saved to {json_path}")
     print("-" * 50)
 
-def run_test(controller_type='nmpc', model_type='tcn'):
+def run_test(controller_type='nmpc', model_type='tcn', month='02'):
     # Setup
     sim_dt = 0.2
     dt_ctrl = 60.0
     horizon = 5 # N_p
     T_ref = 353.15 # 80°C
-    
+
     sim = SingleStackSimulator(sim_dt=sim_dt)
-    
+
     if controller_type == 'nmpc':
         ctrl = SingleStackNMPCController(dt=dt_ctrl, horizon=horizon, sim_dt=sim_dt) # Use dt_sub default or explicit
         print("Using NMPC Controller")
@@ -260,15 +266,15 @@ def run_test(controller_type='nmpc', model_type='tcn'):
         print(f"Using Model Controller ({model_type})")
     else:
         raise ValueError(f"Unknown controller type: {controller_type}")
-    
+
     # Init
     sim.reset()
-    
+
     # Profile
-    full_profile = load_december_profile()
-    
+    full_profile = load_wind_profile(month)
+
     duration = 86400
-        
+
     t_eval = np.arange(0, duration, sim_dt)
     
     print(f"Running test for {duration}s ({duration/3600:.1f}h) with sim_dt={sim_dt}s, dt_ctrl={dt_ctrl}s")
@@ -297,10 +303,11 @@ def run_test(controller_type='nmpc', model_type='tcn'):
     warmup_ctrl = SingleStackNMPCController(dt=dt_ctrl, horizon=horizon, sim_dt=sim_dt)
     
     last_action = run_warmup_phase(
-        sim, warmup_ctrl, history, last_action, sim_dt, 
-        output_dir=output_dir, 
-        filename_prefix=f"warmup_{timestamp}", 
-        T_ref=T_ref
+        sim, warmup_ctrl, history, last_action, sim_dt,
+        output_dir=output_dir,
+        filename_prefix=f"warmup_{timestamp}",
+        T_ref=T_ref,
+        month=month
     )
 
     print(f"Starting Single Stack {controller_type.upper()} Test...")
@@ -516,10 +523,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run Single-Stack Test')
     parser.add_argument('--controller', type=str, default='nmpc', choices=['nmpc', 'model'], help='Controller type')
     parser.add_argument('--model_type', type=str, default='diffusion_tcn', choices=['diffusion_tcn', 'diffusion_mlp', 'flow_tcn', 'flow_mlp', 'pure_mlp'], help='Model type for model-based controller')
+    parser.add_argument('--month', type=str, default='02', help='Wind power data month (01-12)')
 
     args = parser.parse_args()
-    
+
     run_test(
-        controller_type=args.controller, 
+        controller_type=args.controller,
         model_type=args.model_type,
+        month=args.month,
     )

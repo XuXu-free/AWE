@@ -38,21 +38,25 @@ def load_december_profile():
     df = pd.read_csv(profile_path)
     return df['P_ref'].values
 
-def run_warmup_phase(sim, ctrl, history, last_action, dt, output_dir, filename_prefix="warmup", T_ref=353.15):
-    """ 
+def run_warmup_phase(sim, ctrl, history, last_action, dt, output_dir, filename_prefix="warmup", T_ref=353.15, warmup_ctrl=None):
+    """
     Run a warmup phase at constant power to stabilize temperatures.
+    If warmup_ctrl is provided, use it for warmup instead of ctrl.
     """
     warmup_duration = 14400 # seconds (4h)
     warmup_steps = int(warmup_duration / dt)
-    warmup_P_ref = 10.0e6 # 6MW constant
-    
-    print(f"Starting Warm-up Phase ({warmup_duration}s at {warmup_P_ref/1e6}MW)...")
-    
+    warmup_P_ref = 10.0e6 # 10MW constant
+
+    # Use warmup_ctrl if provided, otherwise use the main ctrl
+    active_ctrl = warmup_ctrl if warmup_ctrl is not None else ctrl
+
+    print(f"Starting Warm-up Phase ({warmup_duration}s at {warmup_P_ref/1e6}MW) using {active_ctrl.__class__.__name__}...")
+
     # Pre-calculate future profile for warmup (constant)
-    P_future = [warmup_P_ref] * ctrl.horizon
+    P_future = [warmup_P_ref] * active_ctrl.horizon
     
-    # Control interval steps
-    ctrl_steps = int(ctrl.dt / dt)
+    # Control interval steps (use active_ctrl's dt)
+    ctrl_steps = int(active_ctrl.dt / dt)
     total_ctrl_steps = warmup_steps // ctrl_steps
     warmup_profile = np.array([warmup_P_ref], dtype=float)
     warmup_profile_indices = np.zeros(warmup_steps, dtype=int)
@@ -89,9 +93,9 @@ def run_warmup_phase(sim, ctrl, history, last_action, dt, output_dir, filename_p
             # Store previous action before update
             prev_action = [np.copy(last_action[0]), np.copy(last_action[1]), last_action[2]]
 
-            # Control Update
+            # Control Update (using active_ctrl for warmup)
             if i % ctrl_steps == 0:
-                I_cmd, v_lye_cmd, v_c_cmd = ctrl.get_action(
+                I_cmd, v_lye_cmd, v_c_cmd = active_ctrl.get_action(
                     measured_state, P_future, T_ref=T_ref, last_action=last_action
                 )
                 action_sim = np.concatenate([I_cmd, v_lye_cmd, [v_c_cmd]])
@@ -286,12 +290,17 @@ def run_test(controller_type='nmpc', model_type='tcn', duration=86400):
     plot_every_steps = max(1, int(3600 / sim_dt))
     
     # --- Warm-up Phase ---
+    # Create NMPC controller specifically for warmup (all controllers use NMPC for warmup)
+    print("Creating NMPC controller for warm-up phase...")
+    nmpc_ctrl = MultiStackNMPCController(dt=dt_ctrl, horizon=horizon, dt_sub=sim_dt)
+
     # Pass output_dir and filename_prefix to enable periodic plotting
     last_action = run_warmup_phase(
-        sim, ctrl, history, last_action, sim_dt, 
-        output_dir=output_dir, 
-        filename_prefix=f"warmup_{timestamp}", 
-        T_ref=T_ref
+        sim, ctrl, history, last_action, sim_dt,
+        output_dir=output_dir,
+        filename_prefix=f"warmup_{timestamp}",
+        T_ref=T_ref,
+        warmup_ctrl=nmpc_ctrl  # Use NMPC for warmup
     )
 
     print(f"Starting Multi-Stack {controller_type.upper()} Test...")

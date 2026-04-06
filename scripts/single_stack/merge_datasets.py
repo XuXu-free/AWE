@@ -327,7 +327,7 @@ def main():
     # 设置默认输出文件名
     if args.output is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = os.path.join(base_dir, 'merged')
+        output_dir = os.path.join(base_dir, f'merged_{timestamp}')
         os.makedirs(output_dir, exist_ok=True)
 
         if args.only_step:
