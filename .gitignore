@@ -221,3 +221,21 @@ output/
 
 # Generated dataset figures
 dataset/figure/
+figure/
+
+# LaTeX compilation artifacts
+*.synctex
+*.synctex.gz
+*.bbl-SAVE-ERROR
+*.blg
+*.fdb_latexmk
+*.fls
+*.loa
+*.lof
+*.lot
+*.out
+*.run.xml
+*.toc
+*.bcf
+*.aux
+*.dvi
