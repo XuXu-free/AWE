@@ -16,6 +16,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 from plant.single_stack_simulator import SingleStackSimulator
 
 from controller.single_stack.model_controller import SingleStackModelController
+from controller.single_stack.cbf_model_controller import SingleStackCBFModelController
 from controller.single_stack.nmpc_controller import SingleStackNMPCController
 
 def add_measurement_noise(state):
@@ -264,6 +265,18 @@ def run_test(controller_type='nmpc', model_type='tcn', month='02'):
     elif controller_type == 'model':
         ctrl = SingleStackModelController(model_type=model_type, dt=dt_ctrl)
         print(f"Using Model Controller ({model_type})")
+    elif controller_type == 'cbf_model':
+        ctrl = SingleStackCBFModelController(
+            dt=dt_ctrl, horizon=horizon, model_type=model_type,
+            use_cbf_projection=True,
+            gamma_vec=[3.0, 2.0, 100.0, 100.0, 5.0],
+            rho_vec=[50000, 50000, 50000, 50000, 10000],
+            h_margin_vec=[1.0, 0.002, 0.0, 0.0, 0.0],
+            lambda_u_scale=[500.0, 200.0, 1000.0],
+            soft_mask=[False, True, True, False, True],
+            normalize=True,
+        )
+        print(f"Using CBF Model Controller ({model_type})")
     else:
         raise ValueError(f"Unknown controller type: {controller_type}")
 
@@ -289,7 +302,7 @@ def run_test(controller_type='nmpc', model_type='tcn', month='02'):
         'U_cell_all': [], 'HTO': [], 'H2_rate': []
     }
     
-    last_action = [2000, 0.3, 0.0]
+    last_action = [2000, 0.03, 0.0]
     
     # Generate timestamped filename for data logging
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -521,7 +534,7 @@ def save_data_csv(history, output_dir, filename):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run Single-Stack Test')
-    parser.add_argument('--controller', type=str, default='nmpc', choices=['nmpc', 'model'], help='Controller type')
+    parser.add_argument('--controller', type=str, default='nmpc', choices=['nmpc', 'model', 'cbf_model'], help='Controller type')
     parser.add_argument('--model_type', type=str, default='diffusion_tcn', choices=['diffusion_tcn', 'diffusion_mlp', 'flow_tcn', 'flow_mlp', 'pure_mlp'], help='Model type for model-based controller')
     parser.add_argument('--month', type=str, default='02', help='Wind power data month (01-12)')
 

@@ -19,6 +19,7 @@ Usage:
 
 import os
 import sys
+import io
 import time
 import argparse
 import numpy as np
@@ -29,6 +30,18 @@ import matplotlib.pyplot as plt
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from controller.single_stack.cbf_projection import SingleStackCBFProjection
 from plant.single_stack_simulator import SingleStackSimulator
+import casadi as ca
+
+# Suppress CasADi/IPOPT solver output
+original_opti_solve = ca.Opti.solve
+def silent_solve(self):
+    old_stdout = sys.stdout
+    sys.stdout = io.StringIO()
+    try:
+        return original_opti_solve(self)
+    finally:
+        sys.stdout = old_stdout
+ca.Opti.solve = silent_solve
 
 
 def run_simulation(projector, duration=36000, u_ref=None, active_mask=None):
@@ -49,9 +62,12 @@ def run_simulation(projector, duration=36000, u_ref=None, active_mask=None):
         't': [], 'I': [], 'I_ref': [], 'v_lye': [], 'v_lye_ref': [],
         'v_c': [], 'v_c_ref': [],
         'HTO': [], 'T_s': [], 'h_HTO': [], 'projection_success': [],
+        'Power': [], 'U_cell': [],
         # CBF values
         'h_raw': [], 'h_norm': [], 'lie_deriv_raw': [], 'lie_deriv_norm': [],
         'cbf_condition': [],
+        # Slack values (recorded at control steps)
+        'slack': [],
         # Cost composition (recorded at control steps)
         'cost_ref': [], 'cost_delta': [], 'cost_slack': [], 'cost_total': [],
         # Solver timing (recorded at control steps)
@@ -70,6 +86,7 @@ def run_simulation(projector, duration=36000, u_ref=None, active_mask=None):
     lambda_u = projector.lambda_u
 
     last_costs = {'ref': 0.0, 'delta': 0.0, 'slack': 0.0, 'total': 0.0}
+    last_slack = np.zeros(5)
 
     for i in range(steps):
         t = i * dt
@@ -82,6 +99,7 @@ def run_simulation(projector, duration=36000, u_ref=None, active_mask=None):
 
             # Compute cost composition (before updating last_action)
             s = info.get('slack', np.zeros(5))
+            last_slack = s.copy()
             ref_cost = np.sum(u_weights * (current_action - u_ref)**2)
             delta_cost = np.sum(lambda_u * (current_action - last_action)**2)
             slack_cost = np.sum(projector.rho_vec * s**2)
@@ -127,9 +145,17 @@ def run_simulation(projector, duration=36000, u_ref=None, active_mask=None):
             history['v_lye_ref'].append(u_ref[1])
             history['v_c'].append(current_action[2])
             history['v_c_ref'].append(u_ref[2])
+            # Compute actual power using simulator's electrochemical model
+            I_rec = current_action[0]
+            T_s_rec = state[1]
+            _, U_cell_rec, _ = sim._calculate_electrochemical_properties(I_rec, T_s_rec)
+            Power_rec = U_cell_rec * I_rec * sim.N_cell / 1e6
+
             history['HTO'].append(hto * 100)
             history['T_s'].append(state[1] - 273.15)
             history['h_HTO'].append(0.02 - hto)
+            history['Power'].append(Power_rec)
+            history['U_cell'].append(U_cell_rec)
             history['projection_success'].append(success)
             history['h_raw'].append(h_raw.copy())
             history['h_norm'].append(h_norm.copy())
@@ -142,6 +168,7 @@ def run_simulation(projector, duration=36000, u_ref=None, active_mask=None):
             history['cost_total'].append(last_costs['total'])
             history['solve_time_ms'].append(solve_time_ms)
             history['active_mask'].append(active_mask.copy() if active_mask is not None else np.array([True]*5))
+            history['slack'].append(last_slack.copy())
 
         sim.step(current_action)
 
@@ -150,8 +177,8 @@ def run_simulation(projector, duration=36000, u_ref=None, active_mask=None):
 
 def plot_single_test(history, config, output_path):
     """Plot single CBF test results with detailed CBF visualization"""
-    fig = plt.figure(figsize=(35, 30))
-    gs = fig.add_gridspec(10, 5, hspace=0.35, wspace=0.3)
+    fig = plt.figure(figsize=(40, 30))
+    gs = fig.add_gridspec(10, 6, hspace=0.35, wspace=0.3)
 
     t = np.array(history['t'])
     h_raw_arr = np.array(history['h_raw'])
@@ -187,15 +214,8 @@ def plot_single_test(history, config, output_path):
     ax2.grid(True)
 
     ax2b = fig.add_subplot(gs[0, 2])
-    # Compute power from history
-    power_vals = []
-    for i in range(len(t)):
-        I = history['I'][i]
-        T_s = history['T_s'][i] + 273.15
-        # Simplified cell voltage calculation
-        U_cell = 1.229 + 3.202e-5 * I + (8.970e-8 * T_s * I)
-        Power = U_cell * I * 368 / 1e6  # MW
-        power_vals.append(Power)
+    # Use actual power computed from simulator's electrochemical model
+    power_vals = history['Power']
     ax2b.plot(t, power_vals, 'c-', linewidth=2)
     ax2b.axhline(y=6.0, color='r', linestyle='--', label='P_max (6MW)')
     ax2b.set_title('Stack Power')
@@ -240,13 +260,8 @@ def plot_single_test(history, config, output_path):
     ax4.grid(True)
 
     ax4b = fig.add_subplot(gs[1, 2])
-    # Cell voltage
-    voltage_vals = []
-    for i in range(len(t)):
-        I = history['I'][i]
-        T_s = history['T_s'][i] + 273.15
-        U_cell = 1.229 + 3.202e-5 * I + (8.970e-8 * T_s * I)
-        voltage_vals.append(U_cell)
+    # Use actual cell voltage from simulator's electrochemical model
+    voltage_vals = history['U_cell']
     ax4b.plot(t, voltage_vals, 'm-', linewidth=2)
     ax4b.axhline(y=2.2, color='r', linestyle='--', label='U_max (2.2V)')
     ax4b.set_title('Cell Voltage')
@@ -414,6 +429,8 @@ def plot_single_test(history, config, output_path):
     ax_ldn_Tmin.grid(True)
 
     # Column 4: CBF Conditions
+    slack_arr = np.array(history['slack']) if len(history['slack']) > 0 else np.zeros((len(t), 5))
+
     ax_cbf_T = fig.add_subplot(gs[2, 4])
     ax_cbf_T.plot(t, cbf_arr[:, 0], 'b-', linewidth=1.5)
     ax_cbf_T.axhline(y=0, color='r', linestyle='--', alpha=0.5)
@@ -454,6 +471,53 @@ def plot_single_test(history, config, output_path):
     ax_cbf_Tmin.set_ylabel('L_f h + gamma*h')
     ax_cbf_Tmin.set_xlabel('Time (min)')
     ax_cbf_Tmin.grid(True)
+
+    # Column 5: Slack variables on separate subplots
+    ax_slack_T = fig.add_subplot(gs[2, 5])
+    ax_slack_T.plot(t, slack_arr[:, 0], 'b-', linewidth=1.5)
+    ax_slack_T.axhline(y=0, color='r', linestyle='--', alpha=0.5)
+    ax_slack_T.fill_between(t, 0, np.max(slack_arr[:, 0]) * 1.2 + 1e-6, alpha=0.2, color='red', where=(slack_arr[:, 0] > 0))
+    ax_slack_T.set_title('Slack - Temperature')
+    ax_slack_T.set_ylabel('slack')
+    ax_slack_T.set_ylim(bottom=0)
+    ax_slack_T.grid(True)
+
+    ax_slack_HTO = fig.add_subplot(gs[3, 5])
+    ax_slack_HTO.plot(t, slack_arr[:, 1], 'r-', linewidth=1.5)
+    ax_slack_HTO.axhline(y=0, color='r', linestyle='--', alpha=0.5)
+    ax_slack_HTO.fill_between(t, 0, np.max(slack_arr[:, 1]) * 1.2 + 1e-6, alpha=0.2, color='red', where=(slack_arr[:, 1] > 0))
+    ax_slack_HTO.set_title('Slack - HTO')
+    ax_slack_HTO.set_ylabel('slack')
+    ax_slack_HTO.set_ylim(bottom=0)
+    ax_slack_HTO.grid(True)
+
+    ax_slack_V = fig.add_subplot(gs[4, 5])
+    ax_slack_V.plot(t, slack_arr[:, 2], 'm-', linewidth=1.5)
+    ax_slack_V.axhline(y=0, color='r', linestyle='--', alpha=0.5)
+    ax_slack_V.fill_between(t, 0, np.max(slack_arr[:, 2]) * 1.2 + 1e-6, alpha=0.2, color='red', where=(slack_arr[:, 2] > 0))
+    ax_slack_V.set_title('Slack - Voltage')
+    ax_slack_V.set_ylabel('slack')
+    ax_slack_V.set_ylim(bottom=0)
+    ax_slack_V.grid(True)
+
+    ax_slack_P = fig.add_subplot(gs[5, 5])
+    ax_slack_P.plot(t, slack_arr[:, 3], 'c-', linewidth=1.5)
+    ax_slack_P.axhline(y=0, color='r', linestyle='--', alpha=0.5)
+    ax_slack_P.fill_between(t, 0, np.max(slack_arr[:, 3]) * 1.2 + 1e-6, alpha=0.2, color='red', where=(slack_arr[:, 3] > 0))
+    ax_slack_P.set_title('Slack - Power')
+    ax_slack_P.set_ylabel('slack')
+    ax_slack_P.set_ylim(bottom=0)
+    ax_slack_P.grid(True)
+
+    ax_slack_Tmin = fig.add_subplot(gs[6, 5])
+    ax_slack_Tmin.plot(t, slack_arr[:, 4], 'g-', linewidth=1.5)
+    ax_slack_Tmin.axhline(y=0, color='r', linestyle='--', alpha=0.5)
+    ax_slack_Tmin.fill_between(t, 0, np.max(slack_arr[:, 4]) * 1.2 + 1e-6, alpha=0.2, color='red', where=(slack_arr[:, 4] > 0))
+    ax_slack_Tmin.set_title('Slack - Min Temperature')
+    ax_slack_Tmin.set_ylabel('slack')
+    ax_slack_Tmin.set_xlabel('Time (min)')
+    ax_slack_Tmin.set_ylim(bottom=0)
+    ax_slack_Tmin.grid(True)
 
     # Row 7: Cost Composition & Solver Timing
     cost_ref = np.array(history['cost_ref'])
@@ -615,8 +679,9 @@ def main():
                        help='Per-constraint rho values (default: [1000, 10000, 1000, 1000, 1000])')
     parser.add_argument('--h_margin_vec', type=float, nargs=5, default=[0.5, 0.010, 0.0, 0.0, 0.0],
                        help='Per-constraint safety margins [h_T, h_HTO, h_V, h_P, h_Tmin] (e.g., 0.010 for HTO means 1.0%% margin)')
-    parser.add_argument('--lambda_u_scale', type=float, default=1000.0,
-                       help='Control change penalty scale (default: 1000.0)')
+    parser.add_argument('--lambda_u_scale', type=float, nargs='+', default=[1000.0],
+                       help='Control change penalty scale. Single value applies to all controls, '
+                            'or 3 values [I, v_lye, v_c] for per-control tuning (default: 1000.0)')
     parser.add_argument('--soft_mask', type=int, nargs=5, default=[1, 1, 1, 1, 1],
                        help='Per-constraint soft slack mask [h_T, h_HTO, h_V, h_P, h_Tmin]. 1=soft, 0=hard (default: all 1)')
     parser.add_argument('--active_mask', type=int, nargs=5, default=None,
@@ -638,37 +703,40 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
 
     if args.mode == 'single':
-        # Determine reference control and active_mask based on scenario
+        # Unified CBF tuning parameters across ALL scenarios; only u_ref differs per scenario
+        # gamma_T=3.0: temperature reacts faster to drive current down early,
+        #               indirectly protecting HTO before it can spike.
+        # gamma_HTO=2.0: less conservative than 1.0, so HTO does not clamp current
+        #                prematurely, but still reacts well before the 2% limit.
+        # h_margin_HTO=0.005: 0.5% buffer -> effective limit 1.5%, reasonable margin.
+        args.gamma_vec = [3.0, 2.0, 100.0, 100.0, 5.0]
+        args.rho_vec = [50000, 50000, 50000, 50000, 10000]
+        args.h_margin_vec = [1.0, 0.005, 0.0, 0.0, 0.0]
+        args.soft_mask = [0, 1, 1, 0, 1]  # T hard, P hard, others soft
+        # Per-control change penalty: [I, v_lye, v_c]
+        # I gets lighter penalty so current can respond quickly to safety constraints;
+        # v_lye gets lighter penalty as flow adjustments are less critical;
+        # v_c keeps original penalty to avoid rapid coolant swings.
+        args.lambda_u_scale = [500.0, 200.0, 1000.0]
+
         if args.scenario == 'low_power_hto':
             u_ref = np.array([600.0, 0.04, 0.01])  # 600A, 0.04 m3/s, v_c=0.01
-            args.rho_vec = [10000, 50000, 1000, 1000, 10000]
-            args.soft_mask = [1, 1, 1, 1, 1]
-            # Default: only activate T and HTO constraints for low-power HTO risk
             scenario_active_mask = np.array([True, True, False, False, True])
             test_name = 'LowPower_HTO_Tuned'
             print(f"\nRunning LOW POWER HTO test (TUNED)...")
             print(f"  Reference: I=600A, v_lye=0.04 m3/s, v_c=0.01")
-            print(f"  Testing CBF response to HTO constraint with strong penalty")
         elif args.scenario == 'high_temp':
-            u_ref = np.array([7500.0, 0.03, 0.0])  # High current, normal lye, no coolant
-            args.rho_vec = [50000, 10000, 1000, 1000, 50000]
-            args.soft_mask = [0, 1, 1, 1, 0]
-            # Default: only activate temperature constraints for high-temp scenario
-            scenario_active_mask = np.array([True, False, False, False, True])
+            u_ref = np.array([9360.0, 0.03, 0.0])  # Max current, normal lye, no coolant -> strong temp drive
+            scenario_active_mask = np.array([True, True, False, True, False])
             test_name = 'HighTemperature'
             print(f"\nRunning HIGH TEMPERATURE test...")
-            print(f"  Reference: I=7500A, v_lye=0.03 m3/s, v_c=0.0 (Temp risk params)")
-            print(f"  Using hard temperature constraints for strict safety guarantee")
+            print(f"  Reference: I=9360A, v_lye=0.03 m3/s, v_c=0.0 (Temp risk params)")
         elif args.scenario == 'high_power':
-            u_ref = np.array([9360.0, 0.03, 1.0])  # Max current, normal lye, very high coolant
-            args.rho_vec = [50000, 10000, 50000, 50000, 10000]
-            args.soft_mask = [0, 1, 0, 0, 1]
-            # Default: activate T, V, P for high-power scenario (HTO not critical at high current)
-            scenario_active_mask = np.array([True, False, True, True, True])
+            u_ref = np.array([9360.0, 0.03, 1.0])  # Max current, normal lye flow, very high coolant
+            scenario_active_mask = np.array([True, False, False, True, True])
             test_name = 'HighPower'
             print(f"\nRunning HIGH POWER test...")
             print(f"  Reference: I=9360A (max), v_lye=0.03 m3/s, v_c=1.0 (Power limit test)")
-            print(f"  Using hard power/voltage/temperature constraints")
         else:
             u_ref = None
             scenario_active_mask = np.array([True, True, True, True, True])
@@ -727,6 +795,7 @@ def main():
         print(f"  Max HTO: {max(history['HTO']):.3f}%")
         print(f"  Max Temp: {max(history['T_s']):.2f}°C")
         print(f"  Max Current: {max(history['I']):.0f}A")
+        print(f"  Max Power: {max(history['Power']):.3f}MW")
 
     elif args.mode == 'compare':
         print(f"\nRunning CBF comparison (Original vs Normalized)...")

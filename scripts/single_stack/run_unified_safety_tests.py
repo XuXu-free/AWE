@@ -636,7 +636,7 @@ class UnifiedSafetyTester:
         """Generate summary report"""
         report_path = os.path.join(self.output_dir, 'summary_report.txt')
 
-        with open(report_path, 'w') as f:
+        with open(report_path, 'w', encoding='utf-8') as f:
             f.write("="*80 + "\n")
             f.write("Single-Stack Safety Test Summary Report\n")
             f.write(f"Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
