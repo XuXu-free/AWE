@@ -139,7 +139,7 @@ def process_single_month(args_dict):
 
         # Initial actions
         I_prev = 2000.0
-        v_lye_prev = 0.3
+        v_lye_prev = 0.03
         v_c_prev = 0.0
 
         # Warmup phase
