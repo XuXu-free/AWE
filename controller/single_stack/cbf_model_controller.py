@@ -282,7 +282,7 @@ class SingleStackCBFModelController(BaseController):
 
     def get_action(self, state, P_ref, T_ref, last_action, verbose=False):
         """
-        Get action with CBF projection.
+        Get action with candidate sampling, cost-weighted selection, and CBF projection.
 
         state: [T_s_in, T_s, T_sep, T_c_out, n_H2_an, n_liq, n_gas] (7 elements)
         P_ref: List or array of future power references
@@ -293,7 +293,7 @@ class SingleStackCBFModelController(BaseController):
         cond_norm = self._prepare_condition(state, P_ref, T_ref, last_action_vec)
 
         # Sample action from model
-        num_candidates = 1
+        num_candidates = 64
         cond_norm_batch = cond_norm.repeat(num_candidates, 1)
 
         noise_scale = 0.0
@@ -309,8 +309,45 @@ class SingleStackCBFModelController(BaseController):
         actions = self._denormalize_clamp_action(samples_norm)
         actions_np = actions.cpu().numpy()
 
-        # Apply CBF projection to first action
-        raw_action = actions_np[0, :, 0]  # [I, v_lye, v_c]
+        # Evaluate cost for each candidate (first-step action only)
+        P_ref_arr = np.array(P_ref)
+        if len(P_ref_arr) < self.horizon:
+            P_ref_eval = np.pad(P_ref_arr, (0, self.horizon - len(P_ref_arr)), 'edge')
+        else:
+            P_ref_eval = P_ref_arr[:self.horizon]
+
+        costs = np.zeros(num_candidates)
+        for i in range(num_candidates):
+            u0 = actions_np[i, :, 0]
+            I_0, v_lye_0, v_c_0 = u0[0], u0[1], u0[2]
+
+            # Power tracking cost
+            _, U_cell, _ = self.sim_rollout._calculate_electrochemical_properties(I_0, state[1])
+            P_real = U_cell * I_0 * self.sim_rollout.N_cell
+            costs[i] += self.lambda_track * ((P_real - P_ref_eval[0]) / 1e6) ** 2
+
+            # Temperature cost
+            costs[i] += self.lambda_temp * ((state[1] - T_ref) ** 2)
+
+            # Smoothness cost
+            dI = I_0 - last_action_vec[0]
+            dv_lye = v_lye_0 - last_action_vec[1]
+            dv_c = v_c_0 - last_action_vec[2]
+            costs[i] += self.lambda_I * (dI ** 2)
+            costs[i] += self.lambda_lye * (dv_lye ** 2)
+            costs[i] += self.lambda_c * (dv_c ** 2)
+
+        # Cost-weighted selection (softmax over negative cost)
+        cost_min = np.min(costs)
+        cost_max = np.max(costs)
+        if cost_max > cost_min + 1e-6:
+            weights = np.exp(-5.0 * (costs - cost_min) / (cost_max - cost_min))
+        else:
+            weights = np.ones(num_candidates)
+        weights /= np.sum(weights)
+        best_idx = np.random.choice(num_candidates, p=weights)
+
+        raw_action = actions_np[best_idx, :, 0]
 
         if self.use_cbf_projection:
             safe_action, success, cbf_values = self._apply_cbf_projection(raw_action, state, last_action=last_action_vec, verbose=verbose)

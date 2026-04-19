@@ -36,7 +36,9 @@ class SingleStackCBFProjection:
             normalize: Whether to use normalized CBF constraints
             h_margin_vec: List of safety margins for each constraint [h_T, h_HTO, h_V, h_P, h_Tmin]
                              (e.g., 0.002 for HTO means effective limit becomes 2% - 0.2% = 1.8%)
-            lambda_u_scale: Scale factor for control change penalty (default: 1000.0).
+            lambda_u_scale: Scale factor(s) for control change penalty.
+                             Can be a single float (applied to all controls) or a list/array
+                             of 3 values [I, v_lye, v_c] for per-control tuning.
                              Larger values enforce smoother control transitions.
             soft_mask: List of bool indicating whether each constraint uses soft slack
                        [h_T, h_HTO, h_V, h_P, h_Tmin]. Default: all True.
@@ -163,7 +165,12 @@ class SingleStackCBFProjection:
 
         # Control change penalty weights (normalized by nominal deltas for balanced scaling)
         self.u_nominal = np.array([2000.0, 0.02, 0.2])
-        self.lambda_u = lambda_u_scale / (self.u_nominal ** 2)
+        lambda_u_scale_arr = np.asarray(lambda_u_scale)
+        if lambda_u_scale_arr.ndim == 0:
+            lambda_u_scale_arr = np.full(3, lambda_u_scale_arr)
+        elif lambda_u_scale_arr.size != 3:
+            raise ValueError(f"lambda_u_scale must be a scalar or a list of 3 values, got {lambda_u_scale_arr}")
+        self.lambda_u = lambda_u_scale_arr / (self.u_nominal ** 2)
 
         # Build symbolic CasADi functions for h and f
         self._build_casadi_functions()
@@ -383,7 +390,14 @@ class SingleStackCBFProjection:
             print(f"  L_f h + gamma*h = {cbf_ref}")
 
         # Check if reference already satisfies active CBF constraints
-        if np.all(cbf_ref[active_mask] >= 0):
+        # For hard constraints, also verify direct h >= 0 (critical for control-dependent constraints)
+        hard_mask = (~self.soft_mask) & active_mask
+        # Use a small numerical tolerance to avoid unnecessary optimization
+        # when cbf_ref or h_ref is effectively zero (e.g. -1e-9 due to fp errors).
+        early_return_ok = np.all(cbf_ref[active_mask] >= -1e-6)
+        if np.any(hard_mask):
+            early_return_ok = early_return_ok and np.all(h_ref[hard_mask] >= -1e-6)
+        if early_return_ok:
             info = {
                 'h': h_ref,
                 'lie_deriv': lie_deriv_ref,
@@ -464,7 +478,14 @@ class SingleStackCBFProjection:
                 opti.subject_to(cbf_sym[j] + s_var[s_idx] >= 0)
                 s_idx += 1
             else:
-                opti.subject_to(cbf_sym[j] >= 0)
+                # Hard constraint
+                # For control-dependent constraints (V:j=2, P:j=3), only enforce h >= 0 directly
+                # because the standard CBF condition L_f h + gamma*h >= 0 is not applicable
+                # when h explicitly depends on the control input u
+                control_dependent = (j in [2, 3])
+                if not control_dependent:
+                    opti.subject_to(cbf_sym[j] >= 0)
+                opti.subject_to(h_sym[j] >= 0)
 
         # Initial guess
         u0 = np.clip(u_last, [self.I_min, self.v_lye_min, self.v_c_min],
@@ -486,7 +507,17 @@ class SingleStackCBFProjection:
                     cbf_test = ld_test + self.gamma_vec * h_test
                 else:
                     cbf_test = ld_test + self.gamma * h_test
-                return np.all(cbf_test[active_mask] >= 0)
+                # Only enforce hard constraints for initial guess feasibility
+                hard_mask = active_hard_mask
+                if not np.any(hard_mask):
+                    return True
+                # For control-dependent hard constraints (V:j=2, P:j=3), only check h >= 0
+                # For state-dependent hard constraints, check both CBF condition and h >= 0
+                control_dependent_hard = hard_mask & np.array([False, False, True, True, False])
+                state_dependent_hard = hard_mask & (~np.array([False, False, True, True, False]))
+                cbf_ok = np.all(cbf_test[state_dependent_hard] >= 0) if np.any(state_dependent_hard) else True
+                h_ok = np.all(h_test[hard_mask] >= 0)
+                return cbf_ok and h_ok
 
             for I_test in I_candidates_up:
                 if check_cbf_feasibility(I_test):
@@ -579,6 +610,10 @@ class SingleStackCBFProjection:
 
         if u_opt is None or not np.isfinite(u_opt).all():
             u_opt = u0
+        u_opt = np.asarray(u_opt).flatten()
+        u_opt = np.clip(u_opt,
+                        np.array([self.I_min, self.v_lye_min, self.v_c_min]),
+                        np.array([self.I_max, self.v_lye_max, self.v_c_max]))
         if s_opt_raw is None:
             s_opt_raw = np.array([])
         s_opt_raw = np.asarray(s_opt_raw).flatten()
@@ -605,6 +640,35 @@ class SingleStackCBFProjection:
         else:
             cbf_opt = lie_deriv_opt + self.gamma * h_opt
 
+        # Robust fallback: if solver failed and u_opt violates hard constraints,
+        # but u0 is less violating, use u0 instead
+        if not solver_success and np.any(active_hard_mask):
+            ld_u0, h_u0, _, _ = self._compute_lie_derivative(state, u0)
+            if self.normalize:
+                ld_u0 = ld_u0 / np.maximum(np.abs(self.lie_deriv_scales), 1e-10)
+                h_u0_norm = h_u0 / self.h_scales
+                cbf_u0 = ld_u0 + self.gamma_vec * h_u0_norm
+            else:
+                cbf_u0 = ld_u0 + self.gamma * h_u0
+            # For state-dependent hard constraints, compare CBF violation
+            control_dep_hard = active_hard_mask & np.array([False, False, True, True, False])
+            state_dep_hard = active_hard_mask & (~np.array([False, False, True, True, False]))
+            u_opt_cbf_viol = np.max(-cbf_opt[state_dep_hard]) if np.any(state_dep_hard) else -np.inf
+            u0_cbf_viol = np.max(-cbf_u0[state_dep_hard]) if np.any(state_dep_hard) else -np.inf
+            # For all hard constraints, compare direct h violation
+            u_opt_h_viol = np.max(-h_opt_raw[active_hard_mask]) if np.any(active_hard_mask) else -np.inf
+            u0_h_viol = np.max(-h_u0[active_hard_mask]) if np.any(active_hard_mask) else -np.inf
+            # Prefer u0 if it is better on either CBF or direct h
+            if u0_cbf_viol < u_opt_cbf_viol or u0_h_viol < u_opt_h_viol:
+                u_opt = u0
+                lie_deriv_opt = ld_u0
+                lie_deriv_opt_raw = ld_u0.copy()
+                h_opt = h_u0_norm if self.normalize else h_u0
+                h_opt_raw = h_u0.copy()
+                cbf_opt = cbf_u0
+                s_opt_full = np.zeros(n_cbf_total)
+                max_slack = 0.0
+
         # Actual constraint violation (only meaningful for active constraints)
         slack_violation = np.maximum(0, -cbf_opt)
         slack_violation[~active_mask] = 0.0
@@ -616,11 +680,14 @@ class SingleStackCBFProjection:
             np.all(u_opt >= u_min_arr - 1e-6) and
             np.all(u_opt <= u_max_arr + 1e-6)
         )
-        cbf_feasible = np.all(cbf_opt[active_mask] >= -1e-3)
+        # For soft constraints, negative CBF is expected (slack compensates)
+        # For hard constraints: state-dependent need CBF >= 0, all hard need h >= 0
+        control_dep_hard = active_hard_mask & np.array([False, False, True, True, False])
+        state_dep_hard = active_hard_mask & (~np.array([False, False, True, True, False]))
+        cbf_feasible = np.all(cbf_opt[state_dep_hard] >= -1e-3) if np.any(state_dep_hard) else True
         slack_feasible = np.all(s_opt_full[active_soft_mask] >= -1e-6)
-        hard_mask_active = active_hard_mask
-        hard_feasible = np.all(cbf_opt[hard_mask_active] >= -1e-3) if np.any(hard_mask_active) else True
-        actual_success = solver_success or (control_feasible and cbf_feasible and slack_feasible and hard_feasible)
+        hard_feasible = np.all(h_opt_raw[active_hard_mask] >= -1e-3) if np.any(active_hard_mask) else True
+        actual_success = solver_success and control_feasible and cbf_feasible and slack_feasible and hard_feasible
 
         info = {
             'h': h_opt_raw,
@@ -628,6 +695,7 @@ class SingleStackCBFProjection:
             'lie_deriv': lie_deriv_opt_raw,
             'lie_deriv_norm': lie_deriv_opt if self.normalize else None,
             'cbf': cbf_opt,
+            'cbf_ref': cbf_ref,  # original cbf at u_ref for conservatism analysis
             'projection_needed': True,
             'adjustment': np.linalg.norm(u_opt - u_ref),
             'slack': s_opt_full,
