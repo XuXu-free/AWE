@@ -127,19 +127,22 @@ class SingleStackDataset(Dataset):
 def train(args):
     # 1. Dataset
     dataset = SingleStackDataset(args.data_path, horizon=args.horizon)
-    
+
     # Split
     train_size = int(0.9 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-    
+
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
-    
+
     print(f"Train size: {train_size}, Val size: {val_size}")
     print(f"Condition Dim: {dataset.cond_dim}, Action Dim: {dataset.action_dim}, Horizon: {args.horizon}")
-    
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    start_epoch = 0
+    history = {'train_loss': [], 'val_loss': []}
+    best_val_loss = float('inf')
 
     # 2. Model
     if args.model_type == 'flow_tcn':
@@ -182,7 +185,26 @@ def train(args):
         raise ValueError(f"Unknown model type: {args.model_type}")
     
     model.to(device)
-    
+
+    # Resume from checkpoint if provided
+    start_epoch = 0
+    history = {'train_loss': [], 'val_loss': []}
+    best_val_loss = float('inf')
+    if args.resume and os.path.exists(args.resume):
+        print(f"Resuming from checkpoint: {args.resume}")
+        checkpoint = torch.load(args.resume, map_location=device)
+        model.load_state_dict(checkpoint)
+        print("Model state loaded.")
+        # Try to load training history if available
+        hist_path = os.path.join(args.output_dir, f'{args.model_type}_training_history.npz')
+        if os.path.exists(hist_path):
+            hist_data = np.load(hist_path)
+            history['train_loss'] = hist_data['train_loss'].tolist()
+            history['val_loss'] = hist_data['val_loss'].tolist()
+            start_epoch = len(history['train_loss'])
+            best_val_loss = min(history['val_loss']) if history['val_loss'] else float('inf')
+            print(f"Resumed training history: {start_epoch} epochs recorded, best val loss={best_val_loss:.6f}")
+
     print("-" * 50)
     print(f"Model Initialized Successfully")
     print(f"Type: {args.model_type}")
@@ -195,24 +217,21 @@ def train(args):
         print(f"Levels: 4")
     else:
         print(f"Res Blocks: 3")
-        
+
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Total Parameters: {total_params}")
     print(f"Trainable Parameters: {trainable_params}")
     print("-" * 50)
-    
+
     # 4. Optimizer
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    
+
     # Loss for Pure MLP
     mse_loss = nn.MSELoss()
-    
+
     # 5. Loop
-    best_val_loss = float('inf')
-    history = {'train_loss': [], 'val_loss': []}
-    
-    for epoch in range(args.epochs):
+    for epoch in range(start_epoch, args.epochs):
         model.train()
         train_loss = 0
         for cond, action_seq in train_loader:
@@ -263,6 +282,11 @@ def train(args):
             torch.save(model.state_dict(), save_path)
             print(f"Saved best model to {save_path}")
 
+    # Save training history for resume support
+    np.savez(os.path.join(args.output_dir, f'{args.model_type}_training_history.npz'),
+             train_loss=np.array(history['train_loss']),
+             val_loss=np.array(history['val_loss']))
+
     # Plot
     plt.figure()
     plt.plot(history['train_loss'], label='Train')
@@ -299,7 +323,8 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--model_type', type=str, default='diffusion_tcn', choices=['diffusion_tcn', 'diffusion_mlp', 'flow_tcn', 'flow_mlp'], help='Model type: diffusion_tcn, diffusion_mlp, flow_tcn, flow_mlp')
-    
+    parser.add_argument('--resume', type=str, default='', help='Path to checkpoint to resume from')
+
     args = parser.parse_args()
     
     if not args.data_path or not os.path.exists(args.data_path):
