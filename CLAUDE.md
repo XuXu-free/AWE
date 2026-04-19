@@ -53,7 +53,7 @@ python scripts/multi_stack/run_multi_stack_test.py --controller model --model_ty
 python scripts/multi_stack/run_multi_stack_test.py --controller model --model_type diffusion_mlp
 ```
 
-### Training Policies
+### Training Policies (Multi-Stack)
 
 ```bash
 # Train Flow Matching TCN (recommended)
@@ -62,6 +62,23 @@ python scripts/multi_stack/train_policy_model.py --model_type flow_tcn --epochs 
 # Train other variants
 python scripts/multi_stack/train_policy_model.py --model_type diffusion_tcn --epochs 100
 python scripts/multi_stack/train_policy_model.py --model_type flow_mlp --epochs 100
+```
+
+### Training Policies (Single-Stack)
+
+```bash
+# Train Diffusion TCN on single-stack dataset (GPU recommended)
+uv run python scripts/single_stack/train_policy_model.py \
+    --model_type diffusion_tcn \
+    --data_path output/single_stack/dataset/merged_20260319_150124/nmpc_dataset_merged_20260319_150124.csv \
+    --epochs 200 --batch_size 128
+
+# Resume from existing checkpoint
+uv run python scripts/single_stack/train_policy_model.py \
+    --model_type diffusion_tcn \
+    --data_path output/single_stack/dataset/merged_20260319_150124/nmpc_dataset_merged_20260319_150124.csv \
+    --epochs 200 --batch_size 128 \
+    --resume output/single_stack/policy/diffusion_tcn_policy_best.pth
 ```
 
 ### Dataset Generation
@@ -130,11 +147,15 @@ Expected columns in training CSV:
 ## Dependencies
 
 Core requirements:
-- `torch` - PyTorch for neural networks
+- `torch` - PyTorch for neural networks (GPU version: `uv pip install torch --index-url https://download.pytorch.org/whl/cu126`)
 - `numpy`, `scipy` - Numerical computing
 - `casadi` - Nonlinear optimization (NMPC)
 - `pandas`, `matplotlib` - Data handling and visualization
 - `tqdm` - Progress bars
+
+Package management:
+- Use `uv` for fast Python package management and script execution (`uv run python ...`)
+- GPU training requires CUDA-capable PyTorch; install via `uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126`
 
 ## Development Notes
 
@@ -142,4 +163,6 @@ Core requirements:
 - Control dt is typically 60s (aligned with practical actuator limits)
 - Horizon is typically 5 steps (5 minutes at 60s dt)
 - Normalization: Conditions use dataset min-max; Actions use physical limits (I: 0-9360A, v_lye: 0-0.1, v_c: 0-1)
-- GPU optional but recommended for model training; inference works on CPU
+- GPU strongly recommended for model training (single-stack training ~30s/epoch on RTX 5070 vs minutes on CPU); inference works on CPU
+- Single-stack training supports `--resume` to continue from `diffusion_tcn_policy_best.pth` checkpoint
+- Current dev environment: NVIDIA GeForce RTX 5070, CUDA 13.0, PyTorch 2.10.0+cu130
