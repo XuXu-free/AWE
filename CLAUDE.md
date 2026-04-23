@@ -166,3 +166,48 @@ Package management:
 - GPU strongly recommended for model training (single-stack training ~30s/epoch on RTX 5070 vs minutes on CPU); inference works on CPU
 - Single-stack training supports `--resume` to continue from `diffusion_tcn_policy_best.pth` checkpoint
 - Current dev environment: NVIDIA GeForce RTX 5070, CUDA 13.0, PyTorch 2.10.0+cu130
+
+## Zotero MCP Integration
+
+This project uses Zotero as the literature source of truth via MCP (Model Context Protocol).
+
+### Server Configuration
+
+- **Server name**: `zotero-mcp`
+- **Endpoint**: `http://127.0.0.1:23120/mcp`
+- **Port**: 23120
+
+### Setup Commands
+
+```bash
+# Add Zotero MCP server (local project scope)
+claude mcp add --transport http zotero-mcp http://127.0.0.1:23120/mcp
+
+# Add globally (all projects)
+claude mcp add --transport http --scope user zotero-mcp http://127.0.0.1:23120/mcp
+```
+
+### Management Commands
+
+```bash
+claude mcp list          # List all MCP servers
+claude mcp get zotero-mcp # Get server details
+claude mcp remove zotero-mcp # Remove server
+/mcp                     # Check status in Claude Code
+```
+
+### Available Tools
+
+- `search_library` - Search Zotero library
+- `get_item_details` - Get item metadata
+- `get_item_fulltext` - Get PDF full text
+- `search_fulltext` - Full-text search across papers
+- `get_collections` - List Zotero collections
+- `search_annotations` - Search annotations and highlights
+
+### Prerequisites
+
+1. Zotero desktop app must be running
+2. Zotero MCP plugin/service enabled on port 23120
+3. No firewall blocking localhost:23120
+4. After adding, no Claude Code restart is needed

@@ -4,8 +4,8 @@
   碱性电解水（AWE）是大规模绿氢制备的主流技术，但风电、光伏等波动性电源的并网
   对多槽并联AWE系统的协调控制提出了更高要求。传统非线性模型预测控制（NMPC）
   计算开销大，难以满足实时性需求；而纯数据驱动的学习方法又缺乏对温度、氢气纯度
-  等安全约束的严格保证。针对上述问题，以四槽并联AWE系统为研究对象，提出了
-  基于扩散模型的安全预测控制框架。
+  等安全约束的严格保证。本文面向四槽并联AWE系统的功率分配与温度调节问题，
+  建立了一套基于扩散模型的安全预测控制框架。
 
   研究首先建立了涵盖电化学、热力学与氢气传输的高保真仿真模型。
   在此基础上，以NMPC为专家控制器生成训练数据并训练Diffusion TCN控制策略，
@@ -15,7 +15,7 @@
   实现了近两个数量级的计算加速，且HTO始终低于2\%的安全阈值，
   温度、电压与功率约束满足率均达到100\%。
 
-  \textbf{关键词：}碱性电解水制氢；多槽系统；扩散模型；模型预测控制；投影算子；控制障碍函数；安全约束
+  \textbf{关键词：}碱性电解水制氢；扩散模型；安全预测控制；控制障碍函数
 \end{abstract}
 
 \begin{abstract}[en]
@@ -26,8 +26,8 @@
   Model Predictive Control (NMPC) suffers from heavy computational overhead and
   fails to meet real-time requirements, while purely data-driven approaches lack
   strict guarantees for safety constraints such as temperature and hydrogen purity.
-  To address these issues, this study focuses on four-stack parallel AWE systems,
-  proposing a safe predictive control framework based on diffusion models.
+  To address these issues, this study focuses on four-stack parallel AWE systems and
+  proposes a safe predictive control framework based on diffusion models.
 
   First, we establish a high-fidelity simulation model covering electrochemistry,
   thermodynamics, and hydrogen transport. Then, we employ NMPC as an expert
@@ -39,6 +39,6 @@
   time from seconds to about 50 milliseconds, yielding a computational speedup of nearly two orders of magnitude. HTO remains strictly below the 2\% safety
   threshold, and the temperature, voltage, and power constraints are fully satisfied.
 
-  \textbf{Keywords:} AWE; Multi-Stack Electrolysis; Diffusion Models;
+  \textbf{Keywords:} AWE; Multi-Stack Electrolysis; Safe Learning; Diffusion Models;
   Model Predictive Control; Projection Operator; Control Barrier Function; Safety Constraints
 \end{abstract}

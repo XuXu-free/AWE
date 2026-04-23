@@ -1,13 +1,18 @@
 % !TeX root = ../main.tex
 
-\chapter{研究概述与技术路线}
+\chapter{AWE系统建模与仿真}
+\label{chap:modeling}
+
+本章建立四槽并联碱性电解水（AWE）系统的完整动力学模型，为后续控制策略设计与仿真验证提供物理基础。
+首先介绍多槽并联系统的整体架构与基本假设；随后从单槽出发，依次建立电化学模型、热力学模型和氢气传输模型；在此基础上引入多槽共用换热器和分离器带来的耦合机制，扩展得到多槽耦合系统的统一状态空间模型；最后搭建涵盖物理仿真、数据生成与闭环验证的完整实验平台。
 
 \section{系统整体架构}
 
-\subsection{四槽并联AWE系统结构}
+\subsection{多槽并联AWE系统结构}
 
-研究对象为四槽并联碱性电解水（AWE）系统，其结构如图~\ref{fig:system_architecture} 所示。
-系统主要由四个并联的电解槽及其功率变换单元、碱液循环和冷却回路，以及氢侧/氧侧气液分离单元组成。
+所研究的碱性电解水（AWE）系统由$N$个电解槽并联组成，各槽共享碱液循环回路、冷却回路与气液分离单元，但分别由独立的功率变换单元调节电流。
+以四槽系统（$N=4$）为例，其结构如图~\ref{fig:system_architecture} 所示。
+系统主要由$N$个并联的电解槽及其功率变换单元、碱液循环和冷却回路，以及氢侧/氧侧气液分离单元组成。
 
 % system_structure.png 系统架构图
 \begin{figure}[!htp]
@@ -17,23 +22,349 @@
   \label{fig:system_architecture}
 \end{figure}
 
-图~\ref{fig:system_architecture} 展示了系统的三个主要功能模块：
+图~\ref{fig:system_architecture} 展示了系统的主要物理组成模块：
 \begin{itemize}
-  \item \textbf{电-化学转换（Power \& Production）}：每个电解槽由独立的AC/DC功率变换单元调节电流，电流决定产气速率与电解槽电压，从而共同决定电功率消耗
-  \item \textbf{热管理与循环回路（Heat Transfer）}：碱液循环与冷却回路共同作用，决定电解槽温度动态以及换热器的传热过程
-  \item \textbf{分离与杂质传输（Separation \& Impurity）}：氢侧/氧侧气液分离与气体回路耦合，建模溶解氢、气液分配以及HTO指标演化
+  \item \textbf{逆变器（功率变换单元）}：每个电解槽配备独立的AC/DC逆变器，将电网交流电与可再生能源转换为电解槽系统可用的直流电，并提供电流的调节与控制功能
+  \item \textbf{电解槽}：由多个电芯串联组成，在直流电作用下将水分解为氢气和氧气，同时产生废热
+  \item \textbf{气液分离器}：将电解槽出口的氢-碱液和氧-碱液混合物分别送入氢侧与氧侧气液分离器进行气液分离，维持系统压力；其中氢侧气液分离器出口配置HTO检测装置，用于监测气体纯度
+  \item \textbf{碱液泵}：驱动碱液在电解槽与换热器之间循环流动，通过调节转速控制碱液流量，从而维持电解反应所需的电解液供给并辅助温度调节
+  \item \textbf{冷凝水换热器}：通过调节冷却水流量控制换热强度，带走碱液中的多余热量，进而决定碱液温度与电解槽运行温度
+  \item \textbf{控制器}：根据上层功率调度指令与实时状态反馈，计算并下发各电解槽电流、碱液流量和冷却水流量的设定值
 \end{itemize}
 
-系统状态向量为13维：
-\begin{multline}
-  \mathbf{x} = [T_{s,in}, T_{s,1}, T_{s,2}, T_{s,3}, T_{s,4}, T_{sep}, T_{c,out}, \\
-    n_{H_2,an,1}, n_{H_2,an,2}, n_{H_2,an,3}, n_{H_2,an,4}, n_{liq}, n_{gas}]^\top
-\end{multline}
+\subsection{基本假设}
 
-状态向量各分量含义如下：
+在建模之前，首先明确以下基本假设，以平衡模型精度与计算复杂度：
+
+\begin{enumerate}
+  \item 同一电解槽内所有电解电池在相同电流和电压下运行；
+  \item 秒级内稳定的动态变化过程（如气泡体积变化和液位波动）被忽略；
+  \item 电解槽建模为零维系统，假设温度、压力和气体在槽内均匀分布；
+  \item 流出碱液的温度等于电解槽温度；
+  \item 碱液温度仅受电解反应和换热器影响，循环过程中的温度变化被忽略；
+  \item 离开分离器的氢气和氧气流量等于各自的生产速率。
+\end{enumerate}
+
+\section{单槽AWE系统建模}
+
+单槽AWE系统是构成多槽系统的基本单元。本节建立单槽系统的电化学、热力学和氢气传输模型，为后续多槽耦合建模奠定基础。
+本章所涉及的模型参数与控制器参数取值统一汇总于附录~\ref{app:params}。
+
+\subsection{单槽电化学模型}
+
+\subsubsection{电解槽电压模型}
+
+单电芯电压由可逆电压、欧姆过电位和活化过电位三部分组成，分别对应电解反应的热力学平衡电势、电解液与隔膜电阻的欧姆损耗以及电极表面电化学反应的动力学损耗：
+\begin{equation}
+  U_{cell} = U_{rev} + U_{ohm} + U_{act}
+\end{equation}
+
+其中，可逆电压$U_{rev}$由能斯特方程确定，反映了给定工况下电解反应的热力学极限电势。欧姆过电位描述电流流经电解液和隔膜时的电阻压降：
+\begin{equation}
+  U_{ohm} = R_{ohm} \cdot I = (r_1 + r_2 \cdot T_s + r_3 \cdot P_{sys}) \cdot I
+\end{equation}
+
+其中$r_1,r_2,r_3$为欧姆过电位模型参数，$P_{sys}$为系统压力。
+
+活化过电位采用对数形式：
+\begin{equation}
+  U_{act} = s \cdot \ln(t_{act} \cdot I + 1)
+\end{equation}
+
+其中$t_{act} = t_1 + t_2/T_C + t_3/T_C^2$，$T_C = T_s - 273.15$为摄氏温度。
+
+\subsubsection{法拉第效率模型}
+
+法拉第效率描述实际产氢量与理论产氢量之比，受寄生反应（如氢氧复合反应）影响。本文采用如下有理函数形式描述其随电流和温度的变化规律：
+\begin{equation}
+  \eta_F = \frac{I^2}{f_1 + I^2} \cdot f_2
+\end{equation}
+
+其中，$f_1$决定效率曲线的拐点位置，$f_2$为极限效率。参数定义如下：
+\begin{align}
+  f_1 &= 50 + 2.5 \cdot T_C \\
+  f_2 &= 0.92 - 6.25 \times 10^{-6} \cdot T_C
+\end{align}
+
+该模型反映了低电流区法拉第效率较低（寄生反应占主导），高电流区趋近于极限值$f_2$的特性。
+
+\subsubsection{产热功率与氢气产率}
+
+电解槽产热功率可表示为：
+\begin{equation}
+  Q_{ele} = N_{cell} \cdot I \cdot (U_{cell} - \eta_F \cdot U_{th})
+\end{equation}
+
+其中$U_{th}$为热中性电压，$N_{cell}$为单槽电芯数。
+
+氢气产生速率满足以下关系：
+\begin{equation}
+  \dot{n}_{H_2,prod} = \frac{\eta_F \cdot I \cdot N_{cell}}{2F}
+\end{equation}
+
+氧气产生速率（化学计量比2:1）：
+\begin{equation}
+  \dot{n}_{O_2,prod} = \frac{\eta_F \cdot I \cdot N_{cell}}{4F}
+\end{equation}
+
+其中$F$为法拉第常数。
+
+\subsection{单槽热力学模型}
+
+\subsubsection{电解槽热平衡}
+
+单个电解槽的温度动态由热平衡方程描述。电解槽内部产热、表面散热和碱液对流带走的热量共同决定温度变化速率：
+\begin{equation}
+  C_s \frac{dT_s}{dt} = Q_{ele} - Q_{diss} - Q_{flow}
+\end{equation}
+
+其中，$C_s$为电解槽等效热容，$Q_{ele}$为电化学反应产热功率，$Q_{diss}$为表面散热功率，$Q_{flow}$为碱液对流带走的热量。表面散热$Q_{diss}$包括对流和辐射两部分：
+\begin{equation}
+  Q_{diss} = Q_{conv} + Q_{rad}
+\end{equation}
+其中
+\begin{align}
+  Q_{conv} &= \sigma_s \cdot (T_s - T_{am}) \\
+  Q_{rad} &= \epsilon_s \cdot \sigma_b \cdot A_{stack} \cdot (T_s^4 - T_{am}^4)
+\end{align}
+
+碱液对流带走的热量：
+\begin{equation}
+  Q_{flow} = c_{lye} \cdot \rho_{lye} \cdot v_{lye} \cdot (T_s - T_{s,in})
+\end{equation}
+
+其中$c_{lye}$为碱液比热容，$\rho_{lye}$为碱液密度。
+
+\subsubsection{换热器与冷却系统}
+
+换热器负责将电解槽出口高温碱液的热量传递给冷却水，维持系统热平衡。其传热计算基于对数平均温差（LMTD）方法，适用于逆流或并流换热器的稳态传热分析：
+\begin{equation}
+  Q_{hx} = k_{he} \cdot A_{he} \cdot LMTD
+\end{equation}
+
+其中，$k_{he}$为总传热系数，$A_{he}$为传热面积。对数平均温差定义为：
+\begin{equation}
+  LMTD = \begin{cases}
+    0, & (T_{s,in} - T_{c,out})(T_{sep} - T_{c,in}) \leq 0 \\[6pt]
+    \dfrac{(T_{s,in} - T_{c,out}) - (T_{sep} - T_{c,in})}{\ln\left(\dfrac{T_{s,in} - T_{c,out}}{T_{sep} - T_{c,in}}\right)}, & \text{其他}
+  \end{cases}
+\end{equation}
+
+换热器碱液出口温度动态：
+\begin{equation}
+  C_{he} \frac{dT_{s,in}}{dt} = c_{lye} \cdot \rho_{lye} \cdot v_{lye} \cdot (T_{sep} - T_{s,in}) - Q_{hx}
+\end{equation}
+
+冷却水出口温度动态：
+\begin{equation}
+  C_c \frac{dT_{c,out}}{dt} = c_{cw} \cdot \rho_{cw} \cdot v_c \cdot (T_{c,in} - T_{c,out}) + Q_{hx}
+\end{equation}
+
+\subsubsection{分离器热力学}
+
+分离器温度动态方程为：
+\begin{equation}
+  C_{sep} \frac{dT_{sep}}{dt} = 0.5 \cdot c_{lye} \cdot \rho_{lye} \cdot v_{lye} \cdot (T_{s} - T_{sep}) - Q_{sep,diss}
+\end{equation}
+
+其中分离器热耗散$Q_{sep,diss}$包括对流和辐射两部分：
+\begin{equation}
+  Q_{sep,diss} = Q_{sep,conv} + Q_{sep,rad}
+\end{equation}
+其中
+\begin{align}
+  Q_{sep,conv} &= \sigma_{sep} \cdot (T_{sep} - T_{am}) \\
+  Q_{sep,rad} &= \epsilon_{sep} \cdot \sigma_b \cdot A_{sep} \cdot (T_{sep}^4 - T_{am}^4)
+\end{align}
+
+\subsection{单槽氢气传输与HTO模型}
+
+\subsubsection{氢气溶解度}
+
+氢气在碱液中的溶解度采用Secchenov方程结合Henry定律计算：
+\begin{equation}
+  S_{H_2,lye} = \frac{S_{H_2,H_2O}}{10^{K_{H_2} \cdot w_{lye}}}
+\end{equation}
+
+其中氢气在纯水中的溶解度：
+\begin{equation}
+  S_{H_2,H_2O} = \frac{\rho_{H_2O} \cdot P_{sys}}{M_{H_2O} \cdot p_{atm} \cdot H_{H_2}}
+\end{equation}
+
+\subsubsection{阳极室氢气动态}
+
+阳极室溶解氢气摩尔数$n_{H_2,an}$的动态由三部分输入和一部分输出组成：
+
+\textbf{输入1：碱液循环带入}
+\begin{equation}
+  \dot{n}_{H_2,lye} = \frac{S_{H_2,lye} \cdot \rho_{lye} \cdot v_{lye}}{4}
+\end{equation}
+
+\textbf{输入2：跨膜扩散（菲克定律）}
+\begin{equation}
+  \dot{n}_{H_2,diff} = \frac{A_{cell} \cdot N_{cell} \cdot D_{eff} \cdot S_{H_2,lye} \cdot P_{sys}}{\delta}
+\end{equation}
+
+\textbf{输入3：压力差对流（达西定律）}
+\begin{equation}
+  \dot{n}_{H_2,conv} = A_{cell} \cdot N_{cell} \cdot \frac{K_{eff}}{\mu_{lye}} \cdot S_{H_2,lye} \cdot \rho_{lye} \cdot \frac{\Delta P}{\delta}
+\end{equation}
+
+总氢气输入速率可写为：
+\begin{equation}
+  \dot{n}_{H_2,im} = \dot{n}_{H_2,lye} + \dot{n}_{H_2,diff} + \dot{n}_{H_2,conv}
+\end{equation}
+
+\textbf{输出：向分离器传输}
+
+假设阳极室内充分混合，氢气向分离器的传输速率：
+\begin{equation}
+  \dot{n}_{H_2,out} = \frac{n_{H_2,an} \cdot v_{lye}}{2 \cdot V_{an}}
+\end{equation}
+
+其中$V_{an}$为阳极室碱液体积。
+
+阳极室氢气动态方程：
+\begin{equation}
+  \frac{dn_{H_2,an}}{dt} = \dot{n}_{H_2,im} - \dot{n}_{H_2,out}
+\end{equation}
+
+\subsubsection{分离器氢气动态}
+
+分离器液相氢气摩尔数$n_{liq}$动态：
+\begin{equation}
+  \frac{dn_{liq}}{dt} = \dot{n}_{H_2,out} - \frac{n_{liq}}{\tau_{sep}}
+\end{equation}
+
+其中$\tau_{sep}$为气液分离时间常数。
+
+分离器气相氢气摩尔数$n_{gas}$动态：
+\begin{equation}
+  \frac{dn_{gas}}{dt} = \frac{n_{liq}}{\tau_{sep}} - \dot{n}_{H_2,gas,out}
+\end{equation}
+
+氢气随氧气流流出速率：
+\begin{equation}
+  \dot{n}_{H_2,gas,out} = \frac{R \cdot T_{sep} \cdot n_{gas} \cdot \dot{n}_{O_2,prod}}{P_{sys} \cdot V_{sep,gas}}
+\end{equation}
+
+其中$V_{sep,gas}$为分离器气相体积，$V_{sep}$为分离器总体积。
+
+\subsubsection{HTO计算}
+
+氢气至氧侧传输量（HTO）定义为气相中氢气摩尔分数：
+\begin{equation}
+  HTO = \frac{n_{gas} \cdot R \cdot T_{sep}}{P_{sys} \cdot V_{sep,gas}} \times 100\%
+\end{equation}
+
+工程要求HTO严格低于上限$\mathrm{HTO}_{\mathrm{max}}$。
+
+\subsubsection{单槽状态空间}
+
+单槽系统的状态向量为7维：
+\begin{equation}
+  \mathbf{x}_{single} = [T_{s,in}, T_s, T_{sep}, T_{c,out}, n_{H_2,an}, n_{liq}, n_{gas}]^\top \in \mathbb{R}^7
+\end{equation}
+
+单槽系统的控制输入为3维：
+\begin{equation}
+  \mathbf{u}_{single} = [I, v_{lye}, v_c]^\top \in \mathbb{R}^3
+\end{equation}
+
+\section{多槽耦合系统建模}
+
+将$N$个单槽通过共用换热器和气液分离器并联，构成多槽AWE系统。本节建立通用$N$槽耦合模型，实验验证取$N=4$。
+
+由前述单槽建模可知，电化学模型（电压、法拉第效率、产热功率与氢气产率）、电解槽局部热平衡方程以及氢气溶解-跨膜传输模型对每个电解槽仍然独立成立，可直接复用。
+然而，当多个电解槽并联后，以下环节发生本质变化：
+\begin{itemize}
+  \item \textbf{换热器共用}：碱液回路从单槽独立循环变为$N$槽汇流后共用一台换热器，总碱液流量为各槽流量之和，换热器出口温度$T_{s,in}$成为所有电解槽的共同输入；
+  \item \textbf{分离器共用}：气液分离器由单槽独享变为$N$槽共用，分离器入口温度为各槽出口温度的流量加权平均，氢气与氧气汇入同一气相空间；
+  \item \textbf{状态维度扩展}：状态向量从单槽的7维扩展为$2N+5$维，控制输入从3维扩展为$2N+1$维，以容纳各槽独立的电流与碱液流量；
+  \item \textbf{HTO计算更新}：HTO定义形式不变，但氧气产生速率变为$N$个电解槽之和。
+\end{itemize}
+
+以下依次推导多槽共用设备带来的耦合热力学模型与氢气传输模型。
+
+\subsection{多槽耦合热力学模型}
+
+\subsubsection{换热器耦合模型}
+
+$N$个电解槽共用换热器，总碱液流量：
+\begin{equation}
+  v_{tot} = \sum_{i=1}^{N} v_{lye,i}
+\end{equation}
+
+换热器动态与单槽形式相同，但使用总流量$v_{tot}$。
+
+\subsubsection{分离器热力学耦合}
+
+分离器入口温度为各槽出口温度的流量加权平均：
+\begin{equation}
+  T_{sep,in} = \frac{\sum_{i=1}^{N} v_{lye,i} \cdot T_{s,i}}{v_{tot}}
+\end{equation}
+
+分离器温度动态方程为：
+\begin{equation}
+  C_{sep} \frac{dT_{sep}}{dt} = 0.5 \cdot c_{lye} \cdot \rho_{lye} \cdot v_{tot} \cdot (T_{sep,in} - T_{sep}) - Q_{sep,diss}
+\end{equation}
+
+\subsection{多槽氢气传输与HTO模型}
+
+\subsubsection{各槽阳极室动态}
+
+每个电解槽的阳极室氢气动态与单槽形式相同，但各自独立：
+\begin{equation}
+  \frac{dn_{H_2,an,i}}{dt} = \dot{n}_{H_2,im,i} - \frac{n_{H_2,an,i} \cdot v_{lye,i}}{2 \cdot V_{an}}, \quad i = 1, \ldots, N
+\end{equation}
+
+\subsubsection{共用分离器动态}
+
+分离器液相接收来自所有$N$个电解槽的氢气：
+\begin{equation}
+  \frac{dn_{liq}}{dt} = \sum_{i=1}^{N} \frac{n_{H_2,an,i} \cdot v_{lye,i}}{2 \cdot V_{an}} - \frac{n_{liq}}{\tau_{sep}}
+\end{equation}
+
+分离器气相动态方程为：
+\begin{equation}
+  \frac{dn_{gas}}{dt} = \frac{n_{liq}}{\tau_{sep}} - \frac{R \cdot T_{sep} \cdot n_{gas} \cdot \sum_{i=1}^{N} \dot{n}_{O_2,prod,i}}{P_{sys} \cdot V_{sep,gas}}
+\end{equation}
+
+\subsubsection{系统整体HTO计算}
+
+多槽系统的HTO计算与单槽形式相同，但氧气产生速率为各槽之和：
+\begin{equation}
+  HTO = \frac{n_{gas} \cdot R \cdot T_{sep}}{P_{sys} \cdot V_{sep,gas}} \times 100\%
+\end{equation}
+
+\subsection{多槽耦合特性总结}
+
+将$N$个单槽通过共用换热器和分离器并联后，系统呈现出热、氢、电多物理场耦合特征。
+明确这些耦合机制是设计协调控制策略的前提。$N$槽并联系统的主要耦合特性可从热、氢、电三个维度归纳如下：
+
+\textbf{1. 热耦合}。
+$N$个电解槽共用碱液循环回路，具体表现为两重热耦合机制：
+一是$N$个电解槽共用换热器出口碱液温度$T_{s,in}$，任一分支流量变化均会影响总流量分配，从而改变换热器传热效率与出口温度；
+二是分离器温度$T_{sep}$受所有电解槽出口温度$T_{s,i}$的流量加权影响，各槽热状态通过碱液循环相互传递。
+
+\textbf{2. 氢耦合}。
+$N$个电解槽共用气液分离器，具体表现为两重氢耦合机制：
+一是分离器气相空间共享，$n_{gas}$和$n_{liq}$为所有电解槽的公共状态，任一分支阳极室氢气输入均会改变分离器内气液两相氢气分布；
+二是所有电解槽的氢气（跨膜扩散与对流携带）汇入共用分离器后统一计算HTO，某一分支异常产氢将直接抬升系统整体HTO水平。
+
+\textbf{3. 电耦合}。
+各电解槽电流独立可控，但系统层面存在功率总和对偶关系：总功率$P_{total} = \sum_{i=1}^{N} P_i$需严格跟踪外部给定的功率参考值$P_{ref}$。
+功率跟踪误差由$N$个电解槽共同承担，任一电解槽因约束受限而降载时，其余电解槽需相应增载以维持总功率平衡，形成隐性的电功率耦合。
+
+基于上述耦合特性，$N$槽系统的状态向量为$(2N+5)$维：
+\begin{equation}
+  \mathbf{x} = [T_{s,in}, T_{s,1}, \ldots, T_{s,N}, T_{sep}, T_{c,out}, n_{H_2,an,1}, \ldots, n_{H_2,an,N}, n_{liq}, n_{gas}]^\top \in \mathbb{R}^{2N+5}
+\end{equation}
+
+各状态变量含义如下：
 \begin{itemize}
   \item $T_{s,in}$：换热器碱液出口温度 [K]
-  \item $T_{s,i}$：第$i$个电解槽温度 [K]，$i=1,2,3,4$
+  \item $T_{s,i}$：第$i$个电解槽温度 [K]，$i=1,\ldots,N$
   \item $T_{sep}$：分离器温度 [K]
   \item $T_{c,out}$：冷却水出口温度 [K]
   \item $n_{H_2,an,i}$：第$i$个阳极室溶解氢气摩尔数 [mol]
@@ -41,203 +372,55 @@
   \item $n_{gas}$：分离器气相氢气摩尔数 [mol]
 \end{itemize}
 
-多槽系统的控制输入为9维：
+控制输入为$(2N+1)$维：
 \begin{equation}
-  \mathbf{u} = [I_1, I_2, I_3, I_4, v_{lye,1}, v_{lye,2}, v_{lye,3}, v_{lye,4}, v_c]^\top
+  \mathbf{u} = [I_1, \ldots, I_N, v_{lye,1}, \ldots, v_{lye,N}, v_c]^\top \in \mathbb{R}^{2N+1}
 \end{equation}
 
 其中$I_i$为第$i$个电解槽电流 [A]，$v_{lye,i}$为碱液流量 [$\mathrm{m}^3/\mathrm{s}$]，$v_c$为冷却水流量 [$\mathrm{m}^3/\mathrm{s}$]。
 
-\subsection{控制目标}
+系统动力学可统一表示为：
+\begin{equation}
+  \dot{\mathbf{x}} = \mathbf{f}(\mathbf{x}, \mathbf{u}), \quad \mathbf{x} \in \mathbb{R}^{2N+5}, \, \mathbf{u} \in \mathbb{R}^{2N+1}
+\end{equation}
 
-系统的控制目标包括：
+上述状态空间模型可归纳如表~\ref{tab:state_space_summary} 所示。
+系统包含四个功能子模型：电化学与产气模型（代数方程）、碱液流分配模型（代数方程）、传热模型（$N+3$阶ODE）和HTO杂质累积模型（$N+2$阶ODE）。
 
-\begin{enumerate}
-  \item \textbf{功率跟踪}：实际总功率跟踪参考功率轨迹
-  \begin{equation}
-    J_{track} = \sum_{k=0}^{N-1} (P_{actual,k} - P_{ref,k})^2
-  \end{equation}
-
-  \item \textbf{温度调节}：各电解槽温度维持在目标温度（通常为80°C）附近
-  \begin{equation}
-    J_{temp} = \sum_{k=0}^{N-1} \sum_{i=1}^{4} (T_{s,i,k} - T_{ref})^2
-  \end{equation}
-
-  \item \textbf{安全约束}：
-  \begin{itemize}
-    \item 温度约束：$293.15 \leq T \leq 363.15$ [K]（20--90°C）
-    \item 电压约束：$U_{cell} \leq 2.2$ [V]
-    \item HTO约束：$\mathrm{HTO} \leq 2$ [\%]
-    \item 功率约束：$P_{stack} \leq 6$ [MW]
-  \end{itemize}
-\end{enumerate}
-
-\section{技术路线对比分析}
-
-\subsection{不同控制方法对比}
-
-表~\ref{tab:method_comparison} 对比了所涉及的主要控制方法。
-
+% N-in-1 AWE系统状态空间模型总结表格
 \begin{table}[!htbp]
   \centering
-  \caption{不同控制方法对比}
-  \label{tab:method_comparison}
-  \begin{tabular}{@{}l p{3cm} p{3.5cm} p{4cm}@{}}
+  \caption{$N$槽并联AWE系统状态空间模型总结}
+  \label{tab:state_space_summary}
+  \small
+  \begin{tabular}{@{}c c c c c@{}}
     \toprule
-    \textbf{方法} & \textbf{核心原理} & \textbf{主要优势} & \textbf{局限性} \\
+    \textbf{子模型} & \textbf{电化学与产气} & \textbf{碱液流分配} & \textbf{传热} & \textbf{HTO杂质累积} \\
     \midrule
-    NMPC & 在线非线性优化 & 理论完备，显式处理约束 & 计算开销大，实时性差 \\
+    \multirow{2}{*}{状态变量} & \multirow{2}{*}{/} & \multirow{2}{*}{/} & $T_{s,in}$, & $\{n_{H_2,an,i}\}_{i=1}^N$, \\
+    & & & $\{T_{s,i}\}_{i=1}^N$, $T_{sep}$, $T_{c,out}$ & $n_{liq}$, $n_{gas}$ \\
     \addlinespace
-    Diffusion Policy & 去噪扩散生成 & 多模态建模，高质量采样 & 推理步数多，耗时较长 \\
+    模型阶数 & 0 & 0 & $N+3$ & $N+2$ \\
+    \midrule
+    \multicolumn{5}{l}{\textbf{控制变量：} 电解电流 $\{I_i\}_{i=1}^N$，碱液流量 $\{v_{lye,i}\}_{i=1}^N$，冷却水流量 $v_c$} \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-\subsection{扩散模型的理论背景}
-
-\textbf{1. 从行为克隆到扩散策略}
-
-传统的模仿学习（Imitation Learning）方法，如行为克隆（Behavior Cloning），通过监督学习直接拟合专家动作：
-\begin{equation}
-  \pi_\theta(\mathbf{a} | \mathbf{s}) = \arg\min_\theta \mathbb{E}_{(\mathbf{s}, \mathbf{a}) \sim \mathcal{D}} [\|\mathbf{a} - \pi_\theta(\mathbf{s})\|^2]
-\end{equation}
-
-然而，行为克隆存在两个主要问题：
-\begin{itemize}
-  \item \textbf{分布漂移}（Distribution Shift）：训练时从专家状态分布采样，推理时从策略自身产生的状态分布采样，两者不一致导致误差累积
-  \item \textbf{单峰输出}：高斯分布假设无法捕捉控制动作的多模态特性，尤其在存在多个等价最优解的场景
-\end{itemize}
-
-扩散策略（Diffusion Policy）通过建模动作的条件分布$\pi(\mathbf{a} | \mathbf{s})$而非确定性映射，有效解决了上述问题。从能量模型（Energy-based Model）的视角出发，将动作生成视为对以下分布的采样：
-\begin{equation}
-  p(\mathbf{a} | \mathbf{s}) \propto \exp(-E_\theta(\mathbf{a}, \mathbf{s}))
-\end{equation}
-
-其中$E_\theta$为能量函数，通过扩散过程学习。
-
-\textbf{2. 扩散模型的控制优势}
-
-在预测控制任务中，扩散模型相比传统方法具有以下优势：
-
-\begin{enumerate}
-  \item \textbf{多模态动作生成}：能够同时表示多个最优动作模式，而非仅输出平均值。对于功率分配问题，不同电解槽间可能存在多种等效分配方案
-
-  \item \textbf{时间序列建模}：TCN等时序网络结构本身具有平滑性，生成的动作序列抖动较小，有利于延长执行机构寿命
-
-  \item \textbf{可组合性}：可以与分类器引导（Classifier Guidance）或代价加权（Cost Weighting）等技术结合，实现约束满足或目标优化
-
-  \item \textbf{模仿学习稳定性}：通过重建整个动作分布而非单点估计，对专家数据中的噪声和分布变化具有更好的容错能力
-\end{enumerate}
-
-\textbf{3. 代价加权动作选择}
-
-生成模型输出候选动作序列后，需要通过物理仿真评估其质量，采用代价加权选择机制：
-\begin{equation}
-  p(\mathbf{a}^{(i)}) \propto \exp\left(-\frac{J(\mathbf{a}^{(i)})}{\alpha}\right)
-\end{equation}
-
-其中$J(\mathbf{a}^{(i)})$为第$i$个候选序列的代价，$\alpha$为温度参数。这种软选择机制平衡了探索（多样性）和利用（低代价），避免贪婪选择陷入局部最优。
-
-\subsection{技术路线选择}
-
-综合考虑控制性能、计算效率和实现复杂度，确定以下技术路线：
-
-\begin{enumerate}
-  \item 以NMPC作为基线方法，生成专家训练数据
-  \item 重点研究Diffusion TCN策略，兼顾性能和效率
-  \item 引入安全投影算子与CBF安全滤波两类安全约束保证机制，确保关键约束的严格满足
-\end{enumerate}
-
-\section{研究框架与技术路线}
-
-\subsection{TCN Diffusion控制框架}
-
-TCN Diffusion控制框架如图~\ref{fig:tcn_diffusion_framework} 所示。
-该框架结合了时序卷积网络的长程依赖建模能力与扩散模型的高质量采样特性，
-用于生成满足约束的动作序列。
-
-\begin{figure}[!htp]
-  \centering
-  \includegraphics[width=0.98\textwidth]{figures/control_structure.png}
-  \caption{TCN Diffusion控制框架图}
-  \label{fig:tcn_diffusion_framework}
-\end{figure}
-
-如图~\ref{fig:tcn_diffusion_framework} 所示，该框架包含``扩散生成''和``安全约束处理''两个阶段。
-TCN Diffusion网络首先从噪声中生成$K$条候选动作序列，
-然后利用物理仿真对各序列进行代价评估与排序，
-最终经安全投影算子或CBF安全滤波修正后执行闭环控制。
-
-\subsection{整体研究框架}
-
-整体研究框架如图~\ref{fig:research_framework} 所示，包括三个主要阶段：
-
-\begin{figure}[!htp]
-  \centering
-  \begin{tikzpicture}[
-    box/.style={rectangle, draw, rounded corners, minimum width=3cm, minimum height=1cm, align=center},
-    arrow/.style={->, >=stealth, thick}
-  ]
-    % 阶段1
-    \node[box, fill=blue!15] (phase1) at (0,0) {\textbf{阶段1：专家数据生成} \\ NMPC控制器 \\ 状态-动作轨迹};
-
-    % 阶段2
-    \node[box, fill=green!15] (phase2) at (5,0) {\textbf{阶段2：策略学习} \\ 生成模型训练 \\ Diffusion};
-
-    % 阶段3
-    \node[box, fill=orange!15] (phase3) at (10,0) {\textbf{阶段3：闭环控制} \\ 安全约束处理 \\ 实时动作选择};
-
-    % 箭头
-    \draw[arrow] (phase1) -- (phase2);
-    \draw[arrow] (phase2) -- (phase3);
-  \end{tikzpicture}
-  \caption{研究框架示意图}
-  \label{fig:research_framework}
-\end{figure}
-
-\subsection{详细技术路线}
-
-围绕前述研究框架，技术路线可细化为以下四个阶段：
-
-\begin{enumerate}
-  \item \textbf{物理仿真建模}
-  \begin{itemize}
-    \item 建立电化学模型（法拉第效率、电解槽电压）
-    \item 建立热力学模型（电解槽热平衡、换热器LMTD）
-    \item 建立氢气传输模型（阳极室溶解、分离器分配）
-    \item 实现多时间尺度ODE求解器（控制周期60s，仿真步长0.2s）
-  \end{itemize}
-
-  \item \textbf{NMPC专家数据生成}
-  \begin{itemize}
-    \item 设计NMPC优化问题（目标函数、约束条件）
-    \item CasADi/IPOPT求解器实现
-    \item Warm-starting加速策略
-    \item 风电功率曲线下的大规模数据生成
-  \end{itemize}
-
-  \item \textbf{生成模型策略训练}
-  \begin{itemize}
-    \item 数据预处理与归一化
-    \item TCN/MLP网络架构设计
-    \item Diffusion训练
-    \item 模型选择与超参数调优
-  \end{itemize}
-
-  \item \textbf{闭环控制与验证}
-  \begin{itemize}
-    \item 代价加权动作选择
-    \item 投影算子安全约束保证机制
-    \item 闭环仿真性能评估
-    \item 与NMPC基线对比分析
-  \end{itemize}
-\end{enumerate}
+表~\ref{tab:state_space_summary} 系统化了各子模型与状态变量之间的对应关系。
+四槽系统（$N=4$）的总状态维度为$2N+5=13$，控制维度为$2N+1=9$。
 
 \section{仿真平台架构}
 
+为验证所提控制策略的有效性，搭建了涵盖物理仿真、专家数据生成、策略训练与闭环验证的完整实验平台。该平台由五个功能模块组成，各模块的职责划分与数据流转关系如下。
+
+\subsection{功能模块划分}
+
+仿真平台由五个功能模块协同构成：物理仿真引擎负责基于电化学、热力学与氢气传输模型，使用SciPy \texttt{solve\_ivp}实现多时间尺度ODE积分，模拟四槽并联AWE系统的闭环动态响应；NMPC专家数据生成模块基于CasADi/IPOPT求解器，在每个控制周期内求解非线性优化问题，生成覆盖多工况的状态-动作专家轨迹，作为后续策略学习的监督标签；策略训练模块基于PyTorch实现Diffusion TCN网络，采用DDPM训练范式，提供数据归一化、训练/测试集划分与模型检查点保存功能；安全约束处理模块实现投影算子单步预测修正与CBF李导数安全滤波，将生成模型的无约束输出映射到严格满足温度、HTO、电压与功率约束的可行控制集；闭环验证与评估模块则在典型与极端工况下开展闭环仿真，记录功率跟踪误差、温度调节偏差、约束违反次数与计算耗时，生成对比图表与统计报告。
+
 \subsection{软件框架}
 
-仿真平台依托Python生态构建，主要依赖包括：
+各功能模块依托Python生态实现，主要依赖包括：
 
 \begin{itemize}
   \item \textbf{PyTorch}：神经网络训练与推理

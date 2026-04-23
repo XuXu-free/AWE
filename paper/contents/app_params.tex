@@ -20,8 +20,24 @@
     额定电流 $I_{rated}$ & 7800 & A \\
     系统压力 $P_{sys}$ & 1.6 & MPa \\
     目标温度 $T_{ref}$ & 353.15 & K (80°C) \\
-    温度约束 & 293.15--363.15 & K (20--90°C) \\
-    HTO约束 & $<2$ & \% \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[!htbp]
+  \centering
+  \caption{安全约束参数取值}
+  \label{tab:params_constraints}
+  \small
+  \begin{tabular}{@{}l c l@{}}
+    \toprule
+    \textbf{参数} & \textbf{数值} & \textbf{说明} \\
+    \midrule
+    温度下限 $T_{\min}$ & 293.15 & K (20°C) \\
+    温度上限 $T_{\max}$ & 363.15 & K (90°C) \\
+    电压上限 $U_{\max}$ & 2.2 & V \\
+    HTO上限 $\mathrm{HTO}_{\max}$ & 2 & \% \\
+    功率上限 $P_{\max}$ & $6 \times 10^{6}$ & W (6 MW) \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -149,3 +165,54 @@
     \bottomrule
   \end{tabular}
 \end{table}
+
+\begin{table}[!htbp]
+  \centering
+  \caption{网络架构超参数配置}
+  \label{tab:params_network}
+  \small
+  \begin{tabular}{@{}l l l@{}}
+    \toprule
+    \textbf{参数} & \textbf{TCN} & \textbf{MLP} \\
+    \midrule
+    网络类型 & 时序卷积网络 & 多层感知机 \\
+    隐藏维度 & 256 & 512（三层） \\
+    卷积核大小 & 3 & - \\
+    空洞因子 & $[1, 2, 4]$ & - \\
+    激活函数 & Mish & - \\
+    时间步嵌入 & 正弦位置编码 & - \\
+    归一化 & - & LayerNorm \\
+    残差连接 & 有 & 有 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\chapter{实验设置}
+\label{app:experiment_settings}
+
+
+\section{实验对象与平台}
+
+为验证所提方法在实际系统规模下的适用性，实验以四槽并联AWE系统（$N=4$）为对象，系统参数如表~\ref{tab:system_params}所示。
+
+\section{硬件与软件环境}
+
+仿真实验在以下软硬件平台下开展：
+\begin{itemize}
+  \item CPU：Intel Core i9-12900K
+  \item GPU：NVIDIA RTX 4090（训练阶段）
+  \item 内存：64GB DDR5
+  \item Python 3.10，PyTorch 2.0，CasADi 3.6
+\end{itemize}
+
+\section{评价指标}
+
+为定量对比各控制方法的综合性能，定义以下评价指标：
+
+\begin{itemize}
+  \item \textbf{功率跟踪}：$\mathrm{RMSE} = \sqrt{\frac{1}{T}\sum_{t=1}^{T}(P_{actual,t} - P_{ref,t})^2}$
+  \item \textbf{温度调节}：$\mathrm{MAE}_T = \frac{1}{T}\sum_{t=1}^{T}\sum_{i=1}^{4}|T_{s,i,t} - T_{ref}|$
+  \item \textbf{约束满足}：越界次数、越界持续时间
+  \item \textbf{计算效率}：单次推理时间
+\end{itemize}
+

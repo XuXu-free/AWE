@@ -75,7 +75,7 @@ class MultiStackNMPCController(BaseController):
         self.lambda_temp = 0.15
         self.lambda_I = 0.0002
         self.lambda_lye = 25000.0
-        self.lambda_c = 0.5
+        self.lambda_c = 2500.0
         
         self._setup_solver()
         
