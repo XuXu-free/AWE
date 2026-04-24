@@ -23,13 +23,6 @@
 为确保温度、HTO、电压与功率等安全约束严格满足，名义控制量进一步经过安全投影算子或CBF安全滤波修正，最终形成闭环控制输入作用于AWE系统。
 下一时刻状态经传感器反馈回控制器，形成滚动时域闭环。
 
-\begin{figure}[!htbp]
-  \centering
-  \includegraphics[width=0.98\textwidth]{figures/control_structure.png}
-  \caption{基于Diffusion TCN的安全学习控制框架}
-  \label{fig:framework}
-\end{figure}
-
 \section{专家数据集生成}
 
 为训练扩散模型控制策略，需构建覆盖典型工况的专家状态-动作数据集。
@@ -285,7 +278,33 @@ DDPM的核心思想是：直接预测原始数据$\mathbf{x}_0$比较困难，�
 
 其中$t$从均匀分布$\mathcal{U}(\{1, \ldots, T\})$中采样，$\boldsymbol{\epsilon} \sim \mathcal{N}(0, \mathbf{I})$。该目标在实践中兼具简洁性与高效性，表现良好。
 
-\textbf{5. 推理采样}
+\textbf{5. 训练流程}
+
+Diffusion TCN的训练过程如算法~\ref{algo:diffusion_training} 所示。训练前，首先对专家数据集中的状态和动作进行Min-Max归一化，使各维度数值处于相近量级，以加速网络收敛。在每个训练迭代中，从数据集中随机采样一个批次专家样本$\{(\mathbf{x}_0^{(i)}, c^{(i)})\}_{i=1}^B$，并独立采样对应的时间步$t^{(i)} \sim \mathcal{U}(\{1, \ldots, T\})$与标准高斯噪声$\boldsymbol{\epsilon}^{(i)} \sim \mathcal{N}(0, \mathbf{I})$。根据前向扩散的重参数化公式计算加噪样本$\mathbf{x}_{t^{(i)}}^{(i)}$，输入噪声预测网络得到$\boldsymbol{\epsilon}_\theta(\mathbf{x}_{t^{(i)}}^{(i)}, t^{(i)}, c^{(i)})$，并以均方误差作为损失函数进行梯度下降更新。该训练流程无需对完整扩散链进行显式建模，仅通过单步噪声预测即可有效学习专家决策分布。
+
+\begin{algorithm}[htb]
+  \caption{Diffusion TCN训练流程}
+  \label{algo:diffusion_training}
+  \SetAlgoLined
+  \KwIn{专家数据集$\mathcal{D}$，扩散步数$T$，批大小$B$，学习率$\eta$，训练轮数$E$}
+  \KwOut{训练好的噪声预测网络参数$\theta$}
+  对$\mathcal{D}$中的状态与动作进行Min-Max归一化\\
+  初始化网络参数$\theta$\\
+  \For{$epoch = 1, \ldots, E$}{
+    随机打乱数据集$\mathcal{D}$\\
+    \For{每个批次$\{(\mathbf{x}_0^{(i)}, c^{(i)})\}_{i=1}^B \subset \mathcal{D}$}{
+      采样时间步$t^{(i)} \sim \mathcal{U}(\{1, \ldots, T\})$\\
+      采样噪声$\boldsymbol{\epsilon}^{(i)} \sim \mathcal{N}(0, \mathbf{I})$\\
+      计算加噪样本：$\mathbf{x}_{t^{(i)}}^{(i)} = \sqrt{\bar{\alpha}_{t^{(i)}}}\mathbf{x}_0^{(i)} + \sqrt{1-\bar{\alpha}_{t^{(i)}}}\boldsymbol{\epsilon}^{(i)}$\\
+      预测噪声：$\hat{\boldsymbol{\epsilon}}^{(i)} = \boldsymbol{\epsilon}_\theta(\mathbf{x}_{t^{(i)}}^{(i)}, t^{(i)}, c^{(i)})$\\
+      计算损失：$\mathcal{L} = \frac{1}{B}\sum_{i=1}^B \|\boldsymbol{\epsilon}^{(i)} - \hat{\boldsymbol{\epsilon}}^{(i)}\|^2$\\
+      梯度下降更新：$\theta \leftarrow \theta - \eta \nabla_\theta \mathcal{L}$\\
+    }
+  }
+  \Return{$\theta$}
+\end{algorithm}
+
+\textbf{6. 推理采样}
 
 训练完成后，从标准正态分布采样$\mathbf{x}_T \sim \mathcal{N}(0, \mathbf{I})$，然后迭代执行去噪步骤：
 \begin{equation}
@@ -312,6 +331,15 @@ DDPM的核心思想是：直接预测原始数据$\mathbf{x}_0$比较困难，�
 \end{equation}
 
 其中条件$c = [\mathbf{x}_t, P_{ref,t:t+N_p}]$包含当前状态和未来$N_p$步的功率计划。通过代价加权选择机制，从多个候选序列中选择最优动作执行。
+
+在线部署阶段的推理架构如图~\ref{fig:framework} 所示：策略网络以当前状态、上一时刻动作和未来功率计划为条件，通过去噪扩散过程生成多条候选动作序列，再经代价加权选择得到名义控制量，最终经安全修正环节输出闭环控制输入。
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=0.98\textwidth]{figures/control_structure.png}
+  \caption{基于Diffusion TCN的安全学习控制框架}
+  \label{fig:framework}
+\end{figure}
 
 \subsection{网络架构}
 
