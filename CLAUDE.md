@@ -67,7 +67,7 @@ python scripts/multi_stack/train_policy_model.py --model_type flow_mlp --epochs 
 ### Training Policies (Single-Stack)
 
 ```bash
-# Train Diffusion TCN on single-stack dataset (GPU recommended)
+# Train TCN Diffusion on single-stack dataset (GPU recommended)
 uv run python scripts/single_stack/train_policy_model.py \
     --model_type diffusion_tcn \
     --data_path output/single_stack/dataset/merged_20260319_150124/nmpc_dataset_merged_20260319_150124.csv \
@@ -156,6 +156,159 @@ Core requirements:
 Package management:
 - Use `uv` for fast Python package management and script execution (`uv run python ...`)
 - GPU training requires CUDA-capable PyTorch; install via `uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126`
+
+## 论文数据图表统一绘图风格（Matplotlib）
+
+所有用于论文的 matplotlib 图表必须遵循以下统一风格，以 `paper/figures/controller_step_comparison.png` 为标杆。
+
+### 全局配置
+
+```python
+import matplotlib
+import matplotlib.pyplot as plt
+
+plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei']
+plt.rcParams['axes.unicode_minus'] = False
+plt.rcParams['figure.dpi'] = 150
+plt.rcParams['savefig.dpi'] = 600
+plt.rcParams['font.size'] = 12
+plt.rcParams['axes.labelsize'] = 12
+plt.rcParams['axes.titlesize'] = 14
+plt.rcParams['legend.fontsize'] = 10
+plt.rcParams['xtick.labelsize'] = 11
+plt.rcParams['ytick.labelsize'] = 11
+```
+
+### 画布与布局
+
+- **单图尺寸**：单张子图建议 `figsize=(6, 4.5)`；2×3 整图建议 `figsize=(18, 10)`
+- **边距**：使用 `plt.tight_layout(pad=2.0)` 或手动调整 `subplots_adjust`，确保子图间不拥挤
+- **多子图编号**：子图标题使用 `(a) 功率跟随` 格式，**居中**置于子图正上方，不加粗
+
+### 标题规范
+
+- **总标题**（如有）：整图顶部居中，黑体/加粗，例如 `"TCN Diffusion 控制器 — 多槽AWE系统响应"`
+- **子图标题**：每个 subplot 上方居中，例如 `"(a) 功率跟随"`、`"(b) 电解槽温度控制"`、`"(c) HTO安全控制"`
+
+### 坐标轴规范
+
+- **轴标签**：中文 + 单位，用圆括号包裹单位，例如 `功率 (MW)`、`温度 (°C)`、`时间 (min)`、`电流 (A)`、`流量 (L/s)`
+- **刻度**：根据数据范围合理设置，避免过多或过少；科学计数法仅在必要时使用
+- **范围**：y 轴范围应略宽于数据实际范围（上下留白约 5%~10%），但不可过大导致曲线扁平
+
+### 网格与边框
+
+- **网格线**：`ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.3)`，浅灰色虚线
+- **边框**：保留四周边框（不隐藏 top/right），线宽默认或 `0.8`
+
+### 曲线与颜色
+
+- **主曲线线宽**：`linewidth=1.5` ~ `2.0`
+- **参考线线宽**：`linewidth=1.0` ~ `1.5`，黑色虚线 `'k--'`
+- **安全限线宽**：红色虚线 `'r--'`，`linewidth=1.5`
+- **颜色序列**：优先使用 matplotlib 默认 tab10：`#1f77b4`（蓝）、`#ff7f0e`（橙）、`#2ca02c`（绿）、`#d62728`（红）
+- **填充区域**：
+  - 跟踪误差填充：浅蓝色 `fill_between(..., alpha=0.15, color='#1f77b4')`
+  - 安全区域填充：浅绿色 `axvspan(..., alpha=0.08, color='green')` 或 `fill_between(..., alpha=0.1, color='green')`
+  - CBF 触发区域：浅红色 `axvspan(..., alpha=0.1, color='red')`
+
+### 图例规范
+
+- **位置**：优先放在子图内部空白处（`loc='best'` 或手动指定），避免遮挡主曲线
+- **排列**：多条曲线时可用 `ncol=2` 双列排列，节省纵向空间
+- **标签**：全部使用中文，例如 `"参考功率"`、`"实际功率"`、`"槽1"`、`"槽2"`、`"安全限 (2%)"`
+- **边框**：`frameon=True`，浅灰边框，`framealpha=0.9`
+
+### 输出规范
+
+- **保存格式**：仅输出 PNG（不保存 PDF），便于版本控制和团队协作
+  ```python
+  plt.savefig('paper/figures/xxx.png', dpi=600, bbox_inches='tight', facecolor='white')
+  ```
+- **背景**：纯白背景 `facecolor='white'`，无边距裁切 `bbox_inches='tight'`
+- **脚本归档**：所有生成论文图表的脚本必须保存到 `paper/scripts/` 目录，命名格式为 `plot_<figure_name>.py`，确保图表可复现
+
+### 子图拆分与LaTeX排版（SJTU模板标准）
+
+多子图图表必须严格匹配 SJTU 本科毕业设计模板 (`中文毕业设计模板250928.pdf`) 中的 [A31]~[A33] 要求。子图标签 `(a)`、`(b)`、`(c)` 由 LaTeX 的 `subfigure` 环境自动生成，**不要**硬编码在 PNG 中。
+
+#### 1. Matplotlib 脚本：提取单张子图 PNG
+
+在保存整图后，使用 `ax.get_tightbbox()` 将每个子图裁剪为独立 PNG，供 LaTeX `\includegraphics` 单独引用：
+
+```python
+import matplotlib.pyplot as plt
+
+# 1. 先保存整图（用于快速预览）
+fig.savefig('paper/figures/xxx.png', dpi=600, bbox_inches='tight', facecolor='white')
+
+# 2. 提取各子图为独立 PNG（供 LaTeX subfigure 使用）
+fig.canvas.draw()
+renderer = fig.canvas.get_renderer()
+for idx, ax in enumerate(axes.flat):
+    label = chr(ord('a') + idx)
+    bbox = ax.get_tightbbox(renderer)
+    bbox_inches = bbox.transformed(fig.dpi_scale_trans.inverted())
+    bbox_inches = bbox_inches.expanded(1.02, 1.02)  # 留 2% 边距
+    fig.savefig(f'paper/figures/xxx_{label}.png', dpi=600,
+                bbox_inches=bbox_inches, facecolor='white')
+plt.close()
+```
+
+> **要点**：
+> - 子图 PNG 文件名为 `xxx_a.png`、`xxx_b.png`、...，与整图同名加后缀。
+> - `expanded(1.02, 1.02)` 保留微小白边，避免坐标轴标签被裁切。
+> - 子图内部**不加** `(a)`、`(b)` 标签文字，保持画面干净。
+
+#### 2. LaTeX 排版：`subfigure` + 空 `\caption{}` + `\caption*{}`
+
+在 `setup.tex` 中确保已加载 caption 居中配置（已默认添加）：
+
+```latex
+\captionsetup{justification=centering}
+\captionsetup[subfigure]{justification=centering}
+```
+
+正文中使用 `subfigure` 环境排版（`sjtuthesis` 已自动加载 `subcaption` 包）：
+
+```latex
+\begin{figure}[!htbp]
+  \centering
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/xxx_a.png}
+    \caption{}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/xxx_b.png}
+    \caption{}
+  \end{subfigure}
+  % ... 更多子图 ...
+  \caption{主图题：TCN Diffusion、Diffusion MLP、NMPC与MLP阶跃响应对比}
+  \captionsetup{font=normalfont}
+  \caption*{(a) 总功率跟踪；(b) 电解槽温度；(c) 氢氧杂质含量；(d) 电解槽电流；(e) 碱液流量；(f) 冷却水流量}
+  \label{fig:xxx}
+\end{figure}
+```
+
+> **排版规则**：
+> - `\caption{}` 留空：只生成 `(a)`、`(b)` 编号，不输出文字，符合模板示例。
+> - 主 `\caption{...}`：第一行，五号加粗居中，由 `sjtuthesis` 自动处理。
+> - `\caption*{...}`：第二行，用于子图说明文字，使用 `\captionsetup{font=normalfont}` 取消加粗。
+> - 子图说明格式：`(a) xxx；(b) xxx；...`，用全角分号 `；` 分隔。
+
+### 典型子图类型速查
+
+| 子图内容 | x 轴标签 | y 轴标签 | 参考线 | 备注 |
+|---|---|---|---|---|
+| 功率跟踪 | 时间 (min) | 功率 (MW) | 黑色虚线 `P_ref` | 可加浅蓝填充 |
+| 温度 | 时间 (min) | 温度 (°C) | 黑色虚线 `T_ref`，红色虚线 `T_max` | — |
+| HTO | 时间 (min) | HTO (%) | 红色虚线 2% | 安全区用浅绿填充 |
+| 电流 | 时间 (min) | 电流 (A) 或 (kA) | 黑色虚线 `I_ref` | 注意单位统一 |
+| 碱液流量 | 时间 (min) | 流量 (L/s) | — | 注意纵坐标范围 |
+| 冷却剂流量 | 时间 (min) | 流量 (L/s) | 黑色虚线 `v_c_ref` | 注意纵坐标范围 |
 
 ## Development Notes
 
