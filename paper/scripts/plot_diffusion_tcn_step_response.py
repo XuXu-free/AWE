@@ -51,7 +51,7 @@ fig.subplots_adjust(hspace=0.32, wspace=0.28, left=0.07, right=0.97, top=0.90, b
 ax = axes[0, 0]
 ax.plot(t, P_ref, 'k--', linewidth=1.2, alpha=0.7, label='参考功率')
 ax.plot(t, P_real, color=colors[0], linewidth=1.5, label='实际功率')
-ax.set_title('(a) 总功率跟踪', fontsize=14, fontweight='bold')
+ax.set_title('(a) 总功率跟踪', fontsize=14)
 ax.set_ylabel('功率 (MW)')
 ax.legend(loc='best', frameon=True)
 setup_ax(ax)
@@ -63,7 +63,7 @@ ax = axes[0, 1]
 for i in range(4):
     ax.plot(t, T_s[:, i], color=colors[i], linewidth=1.5, label=f'槽{i+1}')
 ax.axhline(y=353.15, color='k', linestyle='--', linewidth=1.2, alpha=0.7, label='设定温度')
-ax.set_title('(b) 电解槽温度', fontsize=14, fontweight='bold')
+ax.set_title('(b) 电解槽温度', fontsize=14)
 ax.set_ylabel('温度 (°C)')
 ax.legend(loc='best', frameon=True, ncol=2)
 setup_ax(ax)
@@ -75,7 +75,7 @@ ax.set_yticklabels([str(c) for c in range(10, 101, 10)])
 ax = axes[0, 2]
 ax.plot(t, HTO, color=colors[0], linewidth=1.5, label='HTO')
 ax.axhline(y=2.0, color='r', linestyle='--', linewidth=1.5, label='安全限 (2%)')
-ax.set_title('(c) 氢氧杂质含量', fontsize=14, fontweight='bold')
+ax.set_title('(c) 氢氧杂质含量', fontsize=14)
 ax.set_ylabel('HTO (%)')
 ax.legend(loc='upper right', frameon=True)
 setup_ax(ax)
@@ -86,7 +86,7 @@ ax.set_yticks([0, 0.5, 1.0, 1.5, 2.0])
 ax = axes[1, 0]
 for i in range(4):
     ax.plot(t, I_all[:, i] / 1000, color=colors[i], linewidth=1.5, label=f'槽{i+1}')
-ax.set_title('(d) 电解槽电流', fontsize=14, fontweight='bold')
+ax.set_title('(d) 电解槽电流', fontsize=14)
 ax.set_ylabel('电流 (kA)')
 ax.set_xlabel('时间 (min)')
 ax.legend(loc='best', frameon=True, ncol=2)
@@ -98,7 +98,7 @@ ax.set_yticks([0, 2, 4, 6, 8])
 ax = axes[1, 1]
 for i in range(4):
     ax.plot(t, v_lye_all[:, i] * 1e3, color=colors[i], linewidth=1.5, label=f'槽{i+1}')
-ax.set_title('(e) 碱液流量', fontsize=14, fontweight='bold')
+ax.set_title('(e) 碱液流量', fontsize=14)
 ax.set_ylabel('流量 (L/s)')
 ax.set_xlabel('时间 (min)')
 ax.legend(loc='best', frameon=True, ncol=2)
@@ -109,7 +109,7 @@ ax.set_yticks([10, 30, 50, 70, 90])
 # (f) 冷却水流量
 ax = axes[1, 2]
 ax.plot(t, v_c * 1e3, color=colors[0], linewidth=1.5, label='实际流量')
-ax.set_title('(f) 冷却水流量', fontsize=14, fontweight='bold')
+ax.set_title('(f) 冷却水流量', fontsize=14)
 ax.set_ylabel('流量 (L/s)')
 ax.set_xlabel('时间 (min)')
 ax.legend(loc='best', frameon=True)

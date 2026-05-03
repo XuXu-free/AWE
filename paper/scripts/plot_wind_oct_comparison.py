@@ -84,7 +84,7 @@ for label, color in zip(labels, colors):
     t = df['t'].values / 3600
     ax.plot(t, df['P_ref'].values/1e6, '--', color=color, alpha=0.5, linewidth=1)
     ax.plot(t, smooth(df['P_actual'].values/1e6), color=color, linewidth=1.5, label=label)
-ax.set_title('(a) 总功率跟踪', fontsize=14, fontweight='bold')
+ax.set_title('(a) 总功率跟踪', fontsize=14)
 ax.set_ylabel('功率 (MW)')
 ax.legend(loc='best', frameon=True)
 setup_ax(ax)
@@ -100,7 +100,7 @@ for label, color in zip(labels, colors):
     ax.plot(t, smooth(T_stack_mean), color=color, linewidth=1.5, label=label)
 ax.axhline(y=353.15, color='k', linestyle='--', linewidth=1.2, alpha=0.7, label='设定温度')
 ax.axhline(y=363.15, color='r', linestyle='--', linewidth=1.5, label='安全上限 (90°C)')
-ax.set_title('(b) 电解槽温度', fontsize=14, fontweight='bold')
+ax.set_title('(b) 电解槽温度', fontsize=14)
 ax.set_ylabel('温度 (°C)')
 ax.legend(loc='best', frameon=True)
 setup_ax(ax)
@@ -118,7 +118,7 @@ for label, color in zip(labels, colors):
     else:
         ax.plot(t, np.zeros_like(t), color=color, linewidth=1.5, label=label)
 ax.axhline(2.0, color='r', linestyle='--', linewidth=1.5, label='安全限 (2%)')
-ax.set_title('(c) 氢氧杂质含量', fontsize=14, fontweight='bold')
+ax.set_title('(c) 氢氧杂质含量', fontsize=14)
 ax.set_ylabel('HTO (%)')
 ax.legend(loc='best', frameon=True)
 setup_ax(ax)
@@ -132,7 +132,7 @@ for label, color in zip(labels, colors):
     t = df['t'].values / 3600
     I_mean = df[['I_1','I_2','I_3','I_4']].mean(axis=1).values / 1000
     ax.plot(t, smooth(I_mean), color=color, linewidth=1.5, label=label)
-ax.set_title('(d) 电解槽电流', fontsize=14, fontweight='bold')
+ax.set_title('(d) 电解槽电流', fontsize=14)
 ax.set_ylabel('电流 (kA)')
 ax.set_xlabel('时间 (h)')
 ax.legend(loc='best', frameon=True)
@@ -147,7 +147,7 @@ for label, color in zip(labels, colors):
     t = df['t'].values / 3600
     v_lye_mean = df[['v_lye_1','v_lye_2','v_lye_3','v_lye_4']].mean(axis=1).values
     ax.plot(t, smooth(v_lye_mean * 1000), color=color, linewidth=1.5, label=label)
-ax.set_title('(e) 碱液流量', fontsize=14, fontweight='bold')
+ax.set_title('(e) 碱液流量', fontsize=14)
 ax.set_ylabel('流量 (L/s)')
 ax.set_xlabel('时间 (h)')
 ax.legend(loc='best', frameon=True)
@@ -165,7 +165,7 @@ for label, color in zip(labels, colors):
         ax.plot(t, smooth(vc, window=301), color=color, linewidth=1.5, label=label)
     else:
         ax.plot(t, smooth(vc), color=color, linewidth=1.5, label=label)
-ax.set_title('(f) 冷却水流量', fontsize=14, fontweight='bold')
+ax.set_title('(f) 冷却水流量', fontsize=14)
 ax.set_ylabel('流量 (L/s)')
 ax.set_xlabel('时间 (h)')
 ax.legend(loc='best', frameon=True)
