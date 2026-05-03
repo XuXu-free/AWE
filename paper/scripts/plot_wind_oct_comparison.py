@@ -74,7 +74,7 @@ labels = list(paper_models.keys())
 
 # ========== 时间序列对比图 ==========
 fig, axes = plt.subplots(2, 3, figsize=(18, 10), sharex=True)
-fig.subplots_adjust(hspace=0.32, wspace=0.28, left=0.07, right=0.97, top=0.90, bottom=0.08)
+fig.subplots_adjust(hspace=0.32, wspace=0.28, left=0.07, right=0.97, top=0.90, bottom=0.12)
 # 总标题由 LaTeX ption 控制，此处不设置 suptitle
 
 # (a) 总功率跟踪
@@ -84,7 +84,6 @@ for label, color in zip(labels, colors):
     t = df['t'].values / 3600
     ax.plot(t, df['P_ref'].values/1e6, '--', color=color, alpha=0.5, linewidth=1)
     ax.plot(t, smooth(df['P_actual'].values/1e6), color=color, linewidth=1.5, label=label)
-ax.text(0.02, 0.98, '(a)', transform=ax.transAxes, fontsize=14, va='top', ha='left')
 ax.set_ylabel('功率 (MW)')
 ax.legend(loc='best', frameon=True)
 setup_ax(ax)
@@ -100,7 +99,6 @@ for label, color in zip(labels, colors):
     ax.plot(t, smooth(T_stack_mean), color=color, linewidth=1.5, label=label)
 ax.axhline(y=353.15, color='k', linestyle='--', linewidth=1.2, alpha=0.7, label='设定温度')
 ax.axhline(y=363.15, color='r', linestyle='--', linewidth=1.5, label='安全上限 (90°C)')
-ax.text(0.02, 0.98, '(b)', transform=ax.transAxes, fontsize=14, va='top', ha='left')
 ax.set_ylabel('温度 (°C)')
 ax.legend(loc='best', frameon=True)
 setup_ax(ax)
@@ -118,7 +116,6 @@ for label, color in zip(labels, colors):
     else:
         ax.plot(t, np.zeros_like(t), color=color, linewidth=1.5, label=label)
 ax.axhline(2.0, color='r', linestyle='--', linewidth=1.5, label='安全限 (2%)')
-ax.text(0.02, 0.98, '(c)', transform=ax.transAxes, fontsize=14, va='top', ha='left')
 ax.set_ylabel('HTO (%)')
 ax.legend(loc='best', frameon=True)
 setup_ax(ax)
@@ -132,7 +129,6 @@ for label, color in zip(labels, colors):
     t = df['t'].values / 3600
     I_mean = df[['I_1','I_2','I_3','I_4']].mean(axis=1).values / 1000
     ax.plot(t, smooth(I_mean), color=color, linewidth=1.5, label=label)
-ax.text(0.02, 0.98, '(d)', transform=ax.transAxes, fontsize=14, va='top', ha='left')
 ax.set_ylabel('电流 (kA)')
 ax.set_xlabel('时间 (h)')
 ax.legend(loc='best', frameon=True)
@@ -147,7 +143,6 @@ for label, color in zip(labels, colors):
     t = df['t'].values / 3600
     v_lye_mean = df[['v_lye_1','v_lye_2','v_lye_3','v_lye_4']].mean(axis=1).values
     ax.plot(t, smooth(v_lye_mean * 1000), color=color, linewidth=1.5, label=label)
-ax.text(0.02, 0.98, '(e)', transform=ax.transAxes, fontsize=14, va='top', ha='left')
 ax.set_ylabel('流量 (L/s)')
 ax.set_xlabel('时间 (h)')
 ax.legend(loc='best', frameon=True)
@@ -165,7 +160,6 @@ for label, color in zip(labels, colors):
         ax.plot(t, smooth(vc, window=301), color=color, linewidth=1.5, label=label)
     else:
         ax.plot(t, smooth(vc), color=color, linewidth=1.5, label=label)
-ax.text(0.02, 0.98, '(f)', transform=ax.transAxes, fontsize=14, va='top', ha='left')
 ax.set_ylabel('流量 (L/s)')
 ax.set_xlabel('时间 (h)')
 ax.legend(loc='best', frameon=True)
@@ -180,4 +174,15 @@ for ax in axes.flat:
 # ========== 保存 ==========
 plt.savefig('../figures/controller_wind_oct_comparison.png', dpi=600, bbox_inches='tight', facecolor='white')
 print('Saved: ../figures/controller_wind_oct_comparison.png')
+
+# 保存各子图为独立PNG（供LaTeX subfigure环境使用）
+fig.canvas.draw()
+renderer = fig.canvas.get_renderer()
+for idx, ax in enumerate(axes.flat):
+    label = chr(ord('a') + idx)
+    bbox = ax.get_tightbbox(renderer)
+    bbox_inches = bbox.transformed(fig.dpi_scale_trans.inverted())
+    bbox_inches = bbox_inches.expanded(1.02, 1.02)
+    fig.savefig(f'../figures/controller_wind_oct_comparison_{label}.png', dpi=600, bbox_inches=bbox_inches, facecolor='white')
+    print(f'Saved: ../figures/controller_wind_oct_comparison_{label}.png')
 plt.close()

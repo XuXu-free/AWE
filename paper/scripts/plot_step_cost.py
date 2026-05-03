@@ -119,7 +119,12 @@ fig, axes = plt.subplots(1, 2, figsize=(16, 6))
 fig.subplots_adjust(left=0.07, right=0.97, top=0.88, bottom=0.15, wspace=0.25)
 # 总标题由 LaTeX ption 控制，此处不设置 suptitle
 
-colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+METHOD_COLORS = {
+    'TCN Diffusion': '#d62728',   # red - proposed method
+    'NMPC': '#1f77b4',            # blue - baseline
+    'Diffusion MLP': '#2ca02c',   # green
+    'MLP': '#ff7f0e',             # orange
+}
 
 def setup_ax(ax):
     ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.3)
@@ -128,9 +133,9 @@ def setup_ax(ax):
 ax = axes[0]
 names = list(paper_models.keys())
 totals = [paper_costs[name]['total'] for name in names]
-bars = ax.bar(names, totals, color=colors, edgecolor='white', linewidth=0.5)
+bars = ax.bar(names, totals, color=[METHOD_COLORS[name] for name in names], edgecolor='white', linewidth=0.5)
 ax.set_ylabel('总成本')
-ax.text(0.02, 0.98, '(a)', transform=ax.transAxes, fontsize=14, va='top', ha='left')
+ax.set_xlabel('控制器类型')
 setup_ax(ax)
 for bar in bars:
     height = bar.get_height()
@@ -142,10 +147,9 @@ ax_time = axes[1]
 if timing:
     ordered_labels = ['NMPC', 'TCN Diffusion', 'Diffusion MLP', 'MLP']
     time_vals = [timing.get(l, 0) for l in ordered_labels]
-    bar_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
-    bars = ax_time.bar(ordered_labels, time_vals, color=bar_colors, edgecolor='white', linewidth=0.5)
+    bars = ax_time.bar(ordered_labels, time_vals, color=[METHOD_COLORS[l] for l in ordered_labels], edgecolor='white', linewidth=0.5)
     ax_time.set_ylabel('单步计算时间 (ms)')
-    ax_time.text(0.02, 0.98, '(b)', transform=ax_time.transAxes, fontsize=14, va='top', ha='left')
+    ax_time.set_xlabel('控制器类型')
     ax_time.set_yscale('log')
     setup_ax(ax_time)
     for bar in bars:
@@ -154,5 +158,16 @@ if timing:
                     xytext=(0, 3), textcoords="offset points", ha='center', va='bottom', fontsize=9)
 
 plt.savefig('../figures/controller_cost_comparison.png', dpi=600, bbox_inches='tight', facecolor='white')
+
+# 保存各子图为独立PNG（供LaTeX subfigure环境使用）
+fig.canvas.draw()
+renderer = fig.canvas.get_renderer()
+for idx, ax in enumerate(axes.flat):
+    label = chr(ord('a') + idx)
+    bbox = ax.get_tightbbox(renderer)
+    bbox_inches = bbox.transformed(fig.dpi_scale_trans.inverted())
+    bbox_inches = bbox_inches.expanded(1.02, 1.02)
+    fig.savefig(f'../figures/controller_cost_comparison_{label}.png', dpi=600, bbox_inches=bbox_inches, facecolor='white')
+    print(f'Saved: ../figures/controller_cost_comparison_{label}.png')
 plt.close()
 print("Saved: figures/controller_cost_comparison.png")

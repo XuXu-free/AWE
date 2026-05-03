@@ -44,14 +44,13 @@ def setup_ax(ax):
 
 # ========== 画布 ==========
 fig, axes = plt.subplots(2, 3, figsize=(18, 10))
-fig.subplots_adjust(hspace=0.32, wspace=0.28, left=0.07, right=0.97, top=0.90, bottom=0.08)
+fig.subplots_adjust(hspace=0.32, wspace=0.28, left=0.07, right=0.97, top=0.90, bottom=0.12)
 # 总标题由 LaTeX ption 控制，此处不设置 suptitle
 
 # (a) 总功率跟踪
 ax = axes[0, 0]
 ax.plot(t, P_ref, 'k--', linewidth=1.2, alpha=0.7, label='参考功率')
 ax.plot(t, P_real, color=colors[0], linewidth=1.5, label='实际功率')
-ax.text(0.02, 0.98, '(a)', transform=ax.transAxes, fontsize=14, va='top', ha='left')
 ax.set_ylabel('功率 (MW)')
 ax.legend(loc='best', frameon=True)
 setup_ax(ax)
@@ -63,7 +62,6 @@ ax = axes[0, 1]
 for i in range(4):
     ax.plot(t, T_s[:, i], color=colors[i], linewidth=1.5, label=f'槽{i+1}')
 ax.axhline(y=353.15, color='k', linestyle='--', linewidth=1.2, alpha=0.7, label='设定温度')
-ax.text(0.02, 0.98, '(b)', transform=ax.transAxes, fontsize=14, va='top', ha='left')
 ax.set_ylabel('温度 (°C)')
 ax.legend(loc='best', frameon=True, ncol=2)
 setup_ax(ax)
@@ -75,7 +73,6 @@ ax.set_yticklabels([str(c) for c in range(10, 101, 10)])
 ax = axes[0, 2]
 ax.plot(t, HTO, color=colors[0], linewidth=1.5, label='HTO')
 ax.axhline(y=2.0, color='r', linestyle='--', linewidth=1.5, label='安全限 (2%)')
-ax.text(0.02, 0.98, '(c)', transform=ax.transAxes, fontsize=14, va='top', ha='left')
 ax.set_ylabel('HTO (%)')
 ax.legend(loc='upper right', frameon=True)
 setup_ax(ax)
@@ -86,7 +83,6 @@ ax.set_yticks([0, 0.5, 1.0, 1.5, 2.0])
 ax = axes[1, 0]
 for i in range(4):
     ax.plot(t, I_all[:, i] / 1000, color=colors[i], linewidth=1.5, label=f'槽{i+1}')
-ax.text(0.02, 0.98, '(d)', transform=ax.transAxes, fontsize=14, va='top', ha='left')
 ax.set_ylabel('电流 (kA)')
 ax.set_xlabel('时间 (min)')
 ax.legend(loc='best', frameon=True, ncol=2)
@@ -98,7 +94,6 @@ ax.set_yticks([0, 2, 4, 6, 8])
 ax = axes[1, 1]
 for i in range(4):
     ax.plot(t, v_lye_all[:, i] * 1e3, color=colors[i], linewidth=1.5, label=f'槽{i+1}')
-ax.text(0.02, 0.98, '(e)', transform=ax.transAxes, fontsize=14, va='top', ha='left')
 ax.set_ylabel('流量 (L/s)')
 ax.set_xlabel('时间 (min)')
 ax.legend(loc='best', frameon=True, ncol=2)
@@ -109,7 +104,6 @@ ax.set_yticks([10, 30, 50, 70, 90])
 # (f) 冷却水流量
 ax = axes[1, 2]
 ax.plot(t, v_c * 1e3, color=colors[0], linewidth=1.5, label='实际流量')
-ax.text(0.02, 0.98, '(f)', transform=ax.transAxes, fontsize=14, va='top', ha='left')
 ax.set_ylabel('流量 (L/s)')
 ax.set_xlabel('时间 (min)')
 ax.legend(loc='best', frameon=True)
@@ -120,4 +114,15 @@ ax.set_yticks([10, 20, 30, 40])
 # ========== 保存 ==========
 plt.savefig('../figures/diffusion_tcn_step_response.png', dpi=600, bbox_inches='tight', facecolor='white')
 print('Saved: ../figures/diffusion_tcn_step_response.png')
+
+# 保存各子图为独立PNG（供LaTeX subfigure环境使用）
+fig.canvas.draw()
+renderer = fig.canvas.get_renderer()
+for idx, ax in enumerate(axes.flat):
+    label = chr(ord('a') + idx)
+    bbox = ax.get_tightbbox(renderer)
+    bbox_inches = bbox.transformed(fig.dpi_scale_trans.inverted())
+    bbox_inches = bbox_inches.expanded(1.02, 1.02)
+    fig.savefig(f'../figures/diffusion_tcn_step_response_{label}.png', dpi=600, bbox_inches=bbox_inches, facecolor='white')
+    print(f'Saved: ../figures/diffusion_tcn_step_response_{label}.png')
 plt.close()

@@ -112,15 +112,16 @@ def main():
     initial_state = run_steady_state(sim_warm, 3000.0, duration=7200)
     print(f"Warm-up complete. T_s = {initial_state[1:5] - 273.15}")
 
-    # 一阶CBF：不使用 u_weight_scale，展示其固有震荡缺陷
-    print("Running first-order CBF (baseline, no u_weight_scale)...")
+    # 一阶CBF：lambda_u_scale=0，使用小margin使HTO自然贴近2%且不超界
+    print("Running first-order CBF (lambda_u=0, small HTO margin)...")
     cbf1 = MultiStackCBFProjection(
         dt=60.0,
         gamma_vec=[10.0] * 4 + [1.0] + [10.0] * 4,
-        rho_vec=[5000.0] * 9,
+        rho_vec=[5000.0] * 4 + [15000.0] + [5000.0] * 4,
         h_margin_vec=[0.0] * 4 + [0.001] + [0.0] * 4,
         normalize=True,
         lambda_u_scale=0.0,
+        u_weight_scale=[1000.0, 1000.0, 1000.0, 1000.0, 5.0, 5.0, 5.0, 5.0, 0.1],
     )
     h1 = run_step_experiment(cbf1, initial_state, 3000.0, 1000.0, step_time_min=60, total_min=180)
 
@@ -141,7 +142,7 @@ def main():
 
     # 绘图 - 参考图3.9布局
     fig, axes = plt.subplots(2, 2, figsize=(14, 10), sharex=True)
-    fig.subplots_adjust(hspace=0.32, wspace=0.28, left=0.07, right=0.97, top=0.90, bottom=0.08)
+    fig.subplots_adjust(hspace=0.32, wspace=0.28, left=0.07, right=0.97, top=0.90, bottom=0.12)
     # 总标题由 LaTeX \caption 控制，此处不设置 suptitle
 
     t1 = np.array(h1['t'])
@@ -159,7 +160,6 @@ def main():
     ax.plot(t2, I2, color='#1f77b4', linewidth=1.5, label='二阶HOCBF')
     I_ref_arr = np.where(t1 < 60, 12.0, 4.0)
     ax.plot(t1, I_ref_arr, color='k', linestyle='--', linewidth=1.0, alpha=0.5, label='参考电流')
-    ax.text(0.02, 0.98, '(a)', transform=ax.transAxes, fontsize=14, va='top', ha='left')
     ax.set_ylabel('电流 (kA)')
     ax.legend(loc='best', frameon=True)
     setup_ax(ax)
@@ -171,7 +171,6 @@ def main():
     ax.plot(t1, smooth(v1[:, 0]), color='#d62728', linewidth=1.5, label='一阶CBF')
     ax.plot(t2, smooth(v2[:, 0]), color='#1f77b4', linewidth=1.5, label='二阶HOCBF')
     ax.plot(t1, np.full_like(t1, 30.0), color='k', linestyle='--', linewidth=1.0, alpha=0.5, label='参考流量')
-    ax.text(0.02, 0.98, '(b)', transform=ax.transAxes, fontsize=14, va='top', ha='left')
     ax.set_ylabel('流量 (L/s)')
     ax.legend(loc='best', frameon=True)
     setup_ax(ax)
@@ -183,7 +182,6 @@ def main():
     ax.plot(t1, vc1, color='#d62728', linewidth=1.5, label='一阶CBF')
     ax.plot(t2, vc2, color='#1f77b4', linewidth=1.5, label='二阶HOCBF')
     ax.plot(t1, np.full_like(t1, 30.0), color='k', linestyle='--', linewidth=1.0, alpha=0.5, label='参考流量')
-    ax.text(0.02, 0.98, '(c)', transform=ax.transAxes, fontsize=14, va='top', ha='left')
     ax.set_ylabel('流量 (L/s)')
     ax.set_xlabel('时间 (min)')
     ax.legend(loc='best', frameon=True)
@@ -194,7 +192,6 @@ def main():
     ax.plot(t1, smooth(np.array(h1['HTO'])), color='#d62728', linewidth=1.5, label='一阶CBF')
     ax.plot(t2, smooth(np.array(h2['HTO'])), color='#1f77b4', linewidth=1.5, label='二阶HOCBF')
     ax.axhline(2.0, color='r', linestyle='--', linewidth=1.5, label='安全限 (2%)')
-    ax.text(0.02, 0.98, '(d)', transform=ax.transAxes, fontsize=14, va='top', ha='left')
     ax.set_ylabel('HTO (%)')
     ax.set_xlabel('时间 (min)')
     ax.legend(loc='best', frameon=True)
@@ -204,6 +201,17 @@ def main():
 
     out_path = '../figures/cbf_order_comparison.png'
     plt.savefig(out_path, dpi=600, bbox_inches='tight', facecolor='white')
+
+    # 保存各子图为独立PNG（供LaTeX subfigure环境使用）
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    for idx, ax in enumerate(axes.flat):
+        label = chr(ord('a') + idx)
+        bbox = ax.get_tightbbox(renderer)
+        bbox_inches = bbox.transformed(fig.dpi_scale_trans.inverted())
+        bbox_inches = bbox_inches.expanded(1.02, 1.02)
+        fig.savefig(f'../figures/cbf_order_comparison_{label}.png', dpi=600, bbox_inches=bbox_inches, facecolor='white')
+        print(f'Saved: ../figures/cbf_order_comparison_{label}.png')
     plt.close()
     print(f"Saved: {out_path}")
 
