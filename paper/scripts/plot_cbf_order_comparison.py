@@ -202,7 +202,7 @@ def main():
     ax.set_ylim([0, 2.3])
     ax.set_yticks([0, 0.5, 1.0, 1.5, 2.0])
 
-    out_path = 'figures/cbf_order_comparison.png'
+    out_path = '../figures/cbf_order_comparison.png'
     plt.savefig(out_path, dpi=600, bbox_inches='tight', facecolor='white')
     plt.close()
     print(f"Saved: {out_path}")
