@@ -8,14 +8,14 @@
   建立了一套基于扩散模型的安全预测控制框架。
 
   研究首先建立了涵盖电化学、热力学与氢气传输的高保真仿真模型。
-  在此基础上，以NMPC为专家控制器生成训练数据并训练Diffusion TCN控制策略，
-  进而引入投影算子和控制障碍函数（CBF）的安全约束保证机制，
-  将无约束策略输出修正为可行动作。实验结果表明，
-  所提策略的功率跟踪精度接近NMPC基线，推理时间从秒级降至约50毫秒，
+  在此基础上，以NMPC为专家控制器生成训练数据并训练TCN Diffusion控制策略，
+  进而引入控制障碍函数（CBF）安全滤波机制，
+  通过CBF理论将生成策略的无约束输出修正为满足安全边界的可行动作，
+  有效抑制扩散模型推理过程中偶发异常输出带来的安全隐患。实验结果表明，
+  所提策略的功率跟踪精度接近NMPC基线，推理时间从NMPC的约17.6~s降至约177~ms，
   实现了近两个数量级的计算加速，且HTO始终低于2\%的安全阈值，
   温度、电压与功率约束满足率均达到100\%。
 
-  \textbf{关键词：}碱性电解水制氢；扩散模型；安全预测控制；控制障碍函数
 \end{abstract}
 
 \begin{abstract}[en]
@@ -31,14 +31,14 @@
 
   First, we establish a high-fidelity simulation model covering electrochemistry,
   thermodynamics, and hydrogen transport. Then, we employ NMPC as an expert
-  controller to generate training data and train a Diffusion TCN control
+  controller to generate training data and train a TCN Diffusion control
   policy on the resulting trajectories.
-  Finally, we introduce safety projection operators and Control Barrier Functions (CBF)
-  to map the unconstrained policy outputs into feasible actions. Experimental results show that the proposed strategy achieves
+  Finally, we introduce Control Barrier Functions (CBF) as a safety filter,
+  leveraging Lie-derivative forward invariance theory to correct the unconstrained
+  policy outputs into safe feasible actions, thereby effectively suppressing the
+  tail risk inherent in diffusion model inference. Experimental results show that the proposed strategy achieves
   power tracking accuracy close to the NMPC baseline while reducing inference
-  time from seconds to about 50 milliseconds, yielding a computational speedup of nearly two orders of magnitude. HTO remains strictly below the 2\% safety
+  time from about 17.6~s to about 177~ms, yielding a computational speedup of nearly two orders of magnitude. HTO remains strictly below the 2\% safety
   threshold, and the temperature, voltage, and power constraints are fully satisfied.
 
-  \textbf{Keywords:} AWE; Multi-Stack Electrolysis; Safe Learning; Diffusion Models;
-  Model Predictive Control; Projection Operator; Control Barrier Function; Safety Constraints
 \end{abstract}

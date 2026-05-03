@@ -1,0 +1,176 @@
+% !TEX root = ../main.tex
+
+\chapter{符号与标记}
+\label{app:symbols}
+
+本文涉及的主要符号与标记按类别汇总如下。未特别说明的符号均在首次出现时给出定义。同一符号在不同上下文中可能具有不同含义，具体以所在章节的定义为准。
+
+\section{系统、状态与控制符号}
+
+\begin{longtable}{@{}l p{10cm}@{}}
+\caption{系统、状态与控制符号汇总} \label{tab:symbols_system} \\
+\toprule
+\textbf{符号} & \textbf{含义} \\
+\midrule
+\endfirsthead
+\multicolumn{2}{c}%
+{{\bfseries \tablename\ \thetable{} -- 续表}} \\
+\toprule
+\textbf{符号} & \textbf{含义} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+$N$ & 电解槽并联数量，本文取 $N=4$ \\
+$N_{cell}$ & 单槽串联电芯数，本文取 $N_{cell}=368$ \\
+$i, j$ & 槽体索引，$i, j \in \{1, 2, \dots, N\}$ \\
+$k$ & 控制周期（离散时间步）索引 \\
+$t$ & 连续时间变量，单位：$\mathrm{s}$ \\
+$t_0$ & 当前控制时刻 \\
+$\Delta t$ & 控制步长，本文取 $\Delta t = 60~\mathrm{s}$ \\
+$\delta t$ & 仿真积分步长，本文取 $\delta t = 0.2~\mathrm{s}$ \\
+$N_s$ & 每控制步内的仿真子步数，$N_s = \Delta t / \delta t = 300$ \\
+$N_p$ & 预测时域步数 \\
+$T_p$ & 预测时域长度，$T_p = N_p \cdot \Delta t$ \\
+\addlinespace
+$\mathbf{x}$ & 系统状态向量，$\mathbf{x} \in \mathbb{R}^{2N+5}$ \\
+$x_1 = T_{s,\text{in}}$ & 换热器碱液出口温度，单位：$\mathrm{K}$ \\
+$x_{1+j} = T_{s,j}$ & 第 $j$ 个电解槽温度，$j=1,\dots,N$，单位：$\mathrm{K}$ \\
+$x_{N+2} = T_{\text{sep}}$ & 气液分离器温度，单位：$\mathrm{K}$ \\
+$x_{N+3} = T_{c,\text{out}}$ & 冷却水出口温度，单位：$\mathrm{K}$ \\
+$x_{N+3+j} = n_{H_2,\text{an},j}$ & 第 $j$ 槽阳极室氢气物质的量，单位：$\mathrm{mol}$ \\
+$x_{2N+4} = n_{\text{liq}}$ & 分离器液相中溶解氢气物质的量，单位：$\mathrm{mol}$ \\
+$x_{2N+5} = n_{\text{gas}}$ & 分离器气相中氢气物质的量，单位：$\mathrm{mol}$ \\
+\addlinespace
+$\mathbf{u}$ & 控制输入向量，$\mathbf{u} \in \mathbb{R}^{2N+1}$ \\
+$I_j$ & 第 $j$ 个电解槽电流，单位：$\mathrm{A}$ \\
+$v_{\text{lye},j}$ & 第 $j$ 个电解槽碱液流量，单位：$\mathrm{m}^3/\mathrm{s}$ \\
+$v_c$ & 冷却水流量，单位：$\mathrm{m}^3/\mathrm{s}$ \\
+$P_{\text{ref}}$ & 功率参考值，单位：$\mathrm{W}$ \\
+$P_{\text{actual}}$ & 系统实际输出功率，单位：$\mathrm{W}$ \\
+$T_{\text{ref}}$ & 温度设定值，本文取 $T_{\text{ref}} = 353.15~\mathrm{K}$（$80^\circ\mathrm{C}$） \\
+\addlinespace
+RMSE & 均方根误差（Root Mean Square Error） \\
+MAE & 平均绝对误差（Mean Absolute Error） \\
+HTO & 氢气在氧气中的杂质含量（Hydrogen in Oxygen），单位：$\%$ \\
+$\eta$ & 电解效率或效率相关指标 \\
+\end{longtable}
+
+\section{物理模型参数与中间变量}
+
+\begin{longtable}{@{}l p{10cm}@{}}
+\caption{物理模型参数与中间变量汇总} \label{tab:symbols_physics} \\
+\toprule
+\textbf{符号} & \textbf{含义} \\
+\midrule
+\endfirsthead
+\multicolumn{2}{c}%
+{{\bfseries \tablename\ \thetable{} -- 续表}} \\
+\toprule
+\textbf{符号} & \textbf{含义} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+$U_{\text{cell}}$ & 电芯工作电压，单位：$\mathrm{V}$ \\
+$U_{\text{rev}}$ & 可逆电压，单位：$\mathrm{V}$ \\
+$U_{\text{th}}$ & 热中性电压，单位：$\mathrm{V}$ \\
+$\eta_F$ & 法拉第效率 \\
+$F$ & 法拉第常数，$F = 96485~\mathrm{C}/\mathrm{mol}$ \\
+$R$ & 理想气体常数，$R = 8.314~\mathrm{J}/(\mathrm{mol}\cdot\mathrm{K})$ \\
+$A_{\text{cell}}$ & 电芯有效面积，单位：$\mathrm{m}^2$ \\
+$P_{\text{sys}}$ & 系统运行压力，单位：$\mathrm{Pa}$ \\
+\addlinespace
+$C_s$ & 单槽等效热容，单位：$\mathrm{J}/\mathrm{K}$ \\
+$c_{\text{lye}}$ & 碱液比热容，单位：$\mathrm{J}/(\mathrm{kg}\cdot\mathrm{K})$ \\
+$\rho_{\text{lye}}$ & 碱液密度，单位：$\mathrm{kg}/\mathrm{m}^3$ \\
+$\sigma_s$ & 电解槽对流换热系数，单位：$\mathrm{W}/\mathrm{K}$ \\
+$\epsilon_s$ & 电解槽表面发射率 \\
+$\sigma_b$ & Stefan--Boltzmann 常数，$5.67 \times 10^{-8}~\mathrm{W}/(\mathrm{m}^2\cdot\mathrm{K}^4)$ \\
+$A_{\text{stack}}$ & 单槽外表面积，单位：$\mathrm{m}^2$ \\
+$k_{\text{he}}$ & 换热器传热系数，单位：$\mathrm{W}/(\mathrm{m}^2\cdot\mathrm{K})$ \\
+$A_{\text{he}}$ & 换热器面积，单位：$\mathrm{m}^2$ \\
+$T_{\text{am}}$ & 环境温度，单位：$\mathrm{K}$ \\
+$Q_{\text{ele}}$ & 电化学反应产热功率，单位：$\mathrm{W}$ \\
+$Q_{\text{diss}}$ & 表面散热功率（对流与辐射之和），单位：$\mathrm{W}$ \\
+$Q_{\text{flow}}$ & 碱液对流带走的热量，单位：$\mathrm{W}$ \\
+$Q_{\text{hx}}$ & 换热器换热量，单位：$\mathrm{W}$ \\
+\addlinespace
+$D_{\text{eff}}$ & 氢气有效扩散系数，单位：$\mathrm{m}^2/\mathrm{s}$ \\
+$K_{\text{eff}}$ & 隔膜有效渗透率，单位：$\mathrm{m}^2$ \\
+$\mu_{\text{lye}}$ & 碱液动力粘度，单位：$\mathrm{Pa}\cdot\mathrm{s}$ \\
+$\delta$ & 隔膜厚度，单位：$\mathrm{m}$ \\
+$\Delta P$ & 隔膜两侧压差，单位：$\mathrm{Pa}$ \\
+$H_{H_2}$ & Henry 常数，单位：$\mathrm{Pa}$ \\
+$K_{H_2}$ & Secchenov 常数 \\
+$S_{H_2,\text{lye}}$ & 氢气在碱液中的溶解度，单位：$\mathrm{mol}/\mathrm{m}^3$ \\
+$\dot{n}_{H_2,\text{prod}}$ & 氢气产率，单位：$\mathrm{mol}/\mathrm{s}$ \\
+$\dot{n}_{O_2,\text{prod}}$ & 氧气产率，单位：$\mathrm{mol}/\mathrm{s}$ \\
+$\dot{n}_{H_2,\text{im}}$ & 氢气杂质跨膜传输摩尔流率，单位：$\mathrm{mol}/\mathrm{s}$ \\
+$\tau_{\text{sep}}$ & 分离器时间常数，单位：$\mathrm{s}$ \\
+$V_{\text{sep}}$ & 分离器总体积，单位：$\mathrm{m}^3$ \\
+$V_{\text{sep,gas}}$ & 分离器气相体积，单位：$\mathrm{m}^3$ \\
+$V_{\text{an}}$ & 阳极室碱液体积，单位：$\mathrm{m}^3$ \\
+$K_{\text{HTO}}$ & HTO 计算比例系数 \\
+\end{longtable}
+
+\section{算法与优化符号}
+
+\begin{longtable}{@{}l p{10cm}@{}}
+\caption{算法与优化符号汇总} \label{tab:symbols_algorithm} \\
+\toprule
+\textbf{符号} & \textbf{含义} \\
+\midrule
+\endfirsthead
+\multicolumn{2}{c}%
+{{\bfseries \tablename\ \thetable{} -- 续表}} \\
+\toprule
+\textbf{符号} & \textbf{含义} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+$\mathbf{f}(\mathbf{x}, \mathbf{u})$ & 系统连续动力学方程，$\dot{\mathbf{x}} = \mathbf{f}(\mathbf{x}, \mathbf{u})$ \\
+$\boldsymbol{\chi}_{j,k}$ & 第 $k$ 控制步内第 $j$ 仿真子步的中间状态 \\
+\addlinespace
+$\mathcal{L}$ & NMPC 代价函数 \\
+$\mathbf{U}_k^\star$ & 第 $k$ 步最优控制序列 \\
+$\mathbf{o}_k$ & 策略条件输入（状态、上一时刻控制、未来功率计划） \\
+$\mathbf{a}_t$ & 控制动作（候选或最终输出） \\
+$\mathcal{U}$ & 容许控制输入集合 \\
+\addlinespace
+$h(\mathbf{x})$ & 控制障碍函数（CBF）候选函数 \\
+$\dot{h}(\mathbf{x}, \mathbf{u})$ & CBF 对时间的一阶全导数（李导数） \\
+$\nabla h$ & $h$ 关于状态 $\mathbf{x}$ 的梯度 \\
+$L_f h$ & $h$ 沿漂移向量场 $f$ 的李导数 \\
+$L_g h$ & $h$ 沿控制向量场 $g$ 的李导数 \\
+$\mathcal{C}$ & 安全集，$\mathcal{C} = \{\mathbf{x} \mid h(\mathbf{x}) \ge 0\}$ \\
+$\alpha(\cdot)$ & 类 $\mathcal{K}$ 函数 \\
+$\gamma$ & CBF 类增益参数 \\
+$\gamma_{\text{CBF}}$ & CBF 指数型条件中的具体增益系数 \\
+$\rho$ & 松弛变量惩罚系数 \\
+$s$ & 松弛变量 \\
+$h_{\text{margin}}$ & 安全边界裕度 \\
+$\lambda_u$ & 控制变化率惩罚权重 \\
+$u_{\text{weight}}$ & 各控制通道参考跟踪权重 \\
+\addlinespace
+$\theta$ & 神经网络可学习参数 \\
+$\boldsymbol{\epsilon}_\theta$ & 噪声预测网络 \\
+$T$ & 扩散过程总时间步数 \\
+$t$（扩散） & 扩散时间步索引，$t \in \{1, 2, \dots, T\}$ \\
+$\mathbf{x}_t$ & 扩散时间步 $t$ 的加噪样本 \\
+$\mathbf{x}_0$ & 原始（干净）数据样本 \\
+$\boldsymbol{\epsilon}$ & 标准高斯噪声 \\
+$\alpha_t$ & 扩散过程累积方差比，$\alpha_t = 1 - \beta_t$ \\
+$\bar{\alpha}_t$ & 累积乘积系数，$\bar{\alpha}_t = \prod_{s=1}^{t}\alpha_s$ \\
+$\beta_t$ & 方差调度参数 \\
+$\boldsymbol{\mu}_\theta$ & 去噪均值 \\
+$c$ & 条件信息（状态与功率计划） \\
+$\mathcal{D}$ & 专家数据集 \\
+$K$ & 推理阶段采样候选数 \\
+\addlinespace
+$\eta_{\text{lr}}$ & 神经网络训练学习率 \\
+$E$ & 训练轮数（Epochs） \\
+$B$ & 训练批大小（Batch size） \\
+$\mathcal{N}(0, \mathbf{I})$ & 标准多元正态分布 \\
+\end{longtable}

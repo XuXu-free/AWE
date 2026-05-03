@@ -25,8 +25,8 @@
     %
     % 关键词
     %
-    zh / keywords        = {碱性电解水制氢；多槽系统；安全学习；扩散模型；模型预测控制；投影算子；控制障碍函数；安全约束},
-    en / keywords        = {AWE; Multi-Stack Electrolysis; Safe Learning; Diffusion Models; Model Predictive Control; Projection Operator; Control Barrier Function; Safety Constraints},
+    zh / keywords        = {电解水制氢；安全学习；扩散模型；控制障碍函数；多槽协调控制},
+    en / keywords        = {Water Electrolysis Hydrogen Production; Safe Learning; Diffusion Models; Control Barrier Functions; Multi-Stack Coordinated Control},
     %
     % 姓名
     %
@@ -67,7 +67,7 @@
     %   专业学位类别按专业名称申请学位
     %   本科生不需要填写
     %
-    % zh / degree          = {工学学士},
+    zh / degree          = {学士},
     % en / degree          = {Bachelor of Engineering},
     %
     % 答辩日期
@@ -129,6 +129,10 @@
 \graphicspath{{figures/}}
 \DeclareGraphicsExtensions{.pdf,.eps,.png,.jpg,.jpeg}
 
+% 图片标题居中
+\captionsetup{justification=centering}
+\captionsetup[subfigure]{justification=centering}
+
 % 颜色宏包
 \usepackage{xcolor}
 
@@ -137,6 +141,9 @@
 
 % 固定宽度的表格
 % \usepackage{tabularx}
+
+% 表格列格式增强
+\usepackage{array}
 
 % 使用三线表：toprule，midrule，bottomrule。
 \usepackage{booktabs}
@@ -220,6 +227,7 @@
 
 % hyperref 宏包在最后调用
 \usepackage{hyperref}
+\hypersetup{pdfborder={0 0 0}}
 
 % E-mail
 \providecommand{\email}[1]{\href{mailto:#1}{\urlstyle{tt}\nolinkurl{#1}}}

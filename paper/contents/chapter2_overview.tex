@@ -15,7 +15,7 @@
 系统主要由$N$个并联的电解槽及其功率变换单元、碱液循环和冷却回路，以及氢侧/氧侧气液分离单元组成。
 
 % system_structure.png 系统架构图
-\begin{figure}[!htp]
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=0.95\textwidth]{figures/system_structure.png}
   \caption{四槽并联AWE系统结构示意图}
@@ -178,6 +178,15 @@
 \end{align}
 
 \subsection{单槽氢气传输与HTO模型}
+
+单槽AWE系统的氢气传输与HTO（Hydrogen-to-Oxygen）杂质模型描述了氢气从阴极产生、跨膜传输至阳极、随碱液进入分离器，最终在气液两相中分布的完整物理过程，如图~\ref{fig:single_stack_hto}所示。
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/hto.png}
+  \caption{单槽氢气传输与HTO模型示意图}
+  \label{fig:single_stack_hto}
+\end{figure}
 
 \subsubsection{氢气溶解度}
 
@@ -413,5 +422,5 @@ $N$个电解槽共用换热器，总碱液流量：
 
 \subsection{功能模块划分}
 
-仿真平台由五个功能模块协同构成：物理仿真引擎负责基于电化学、热力学与氢气传输模型，使用SciPy \texttt{solve\_ivp}实现多时间尺度ODE积分，模拟四槽并联AWE系统的闭环动态响应；NMPC专家数据生成模块基于CasADi/IPOPT求解器，在每个控制周期内求解非线性优化问题，生成覆盖多工况的状态-动作专家轨迹，作为后续策略学习的监督标签；策略训练模块基于PyTorch实现Diffusion TCN网络，采用DDPM训练范式，提供数据归一化、训练/测试集划分与模型检查点保存功能；安全约束处理模块实现投影算子单步预测修正与CBF李导数安全滤波，将生成模型的无约束输出映射到严格满足温度、HTO、电压与功率约束的可行控制集；闭环验证与评估模块则在典型与极端工况下开展闭环仿真，记录功率跟踪误差、温度调节偏差、约束违反次数与计算耗时，生成对比图表与统计报告。
+仿真平台由五个功能模块协同构成：物理仿真引擎负责基于电化学、热力学与氢气传输模型，使用SciPy \texttt{solve\_ivp}实现多时间尺度ODE积分，模拟四槽并联AWE系统的闭环动态响应；NMPC专家数据生成模块基于CasADi/IPOPT求解器，在每个控制周期内求解非线性优化问题，生成覆盖多工况的状态-动作专家轨迹，作为后续策略学习的监督标签；策略训练模块基于PyTorch实现TCN Diffusion网络，采用DDPM训练范式，提供数据归一化、训练/测试集划分与模型检查点保存功能；安全约束处理模块实现投影算子单步预测修正与CBF李导数安全滤波，将生成模型的无约束输出映射到严格满足温度、HTO、电压与功率约束的可行控制集；闭环验证与评估模块则在典型与极端工况下开展闭环仿真，记录功率跟踪误差、温度调节偏差、约束违反次数与计算耗时，生成对比图表与统计报告。
 

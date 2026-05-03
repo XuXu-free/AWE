@@ -28,13 +28,15 @@
 为训练扩散模型控制策略，需构建覆盖典型工况的专家状态-动作数据集。
 本节首先建立NMPC专家控制器的连续时间与离散时间优化模型，然后阐述基于NMPC闭环仿真的数据生成流程与质量控制方法。
 
-\subsection{连续时间NMPC优化问题}
+\subsection{NMPC专家控制器}
+
+\subsubsection{连续时间优化问题}
 
 针对$N$槽AWE系统（本研究$N=4$），定义连续时间下的有限时域最优控制问题。
 在当前时刻$t_0$，优化目标为在预测时域$T_p = N_p \Delta t$内最小化跟踪误差、温度偏差与控制动作的加权积分：
 
 \begin{align}
-  \min_{\mathbf{u}(\cdot)} \quad & J = \int_{t_0}^{t_0+T_p} \Bigg[ \lambda_{track}\left(P_{total}(t) - P_{ref}(t)\right)^2 + \lambda_{temp}\sum_{j=1}^{N}\left(T_{s,j}(t) - T_{ref}\right)^2 \nonumber \\
+  \min_{\mathbf{u}(\cdot)} \quad & \mathcal{L} = \int_{t_0}^{t_0+T_p} \Bigg[ \lambda_{track}\left(P_{total}(t) - P_{ref}(t)\right)^2 + \lambda_{temp}\sum_{j=1}^{N}\left(T_{s,j}(t) - T_{ref}\right)^2 \nonumber \\
   & \quad + \lambda_I \sum_{j=1}^{N}\left(\frac{dI_j}{dt}\right)^2 + \lambda_{lye} \sum_{j=1}^{N}v_{lye,j}^2(t) + \lambda_c v_c^2(t) \Bigg] \, dt \label{eq:mpc_continuous} \\
   \text{s.t.} \quad & \dot{\mathbf{x}}(t) = \mathbf{f}\left(\mathbf{x}(t), \mathbf{u}(t)\right), \quad t \in [t_0, t_0+T_p] \nonumber \\
   & \mathbf{g}\left(\mathbf{x}(t), \mathbf{u}(t)\right) \leq 0, \quad t \in [t_0, t_0+T_p] \nonumber \\
@@ -44,7 +46,7 @@
 其中$\mathbf{x} \in \mathbb{R}^{13}$为状态向量，$\mathbf{u} = [I_1, \ldots, I_N, v_{lye,1}, \ldots, v_{lye,N}, v_c]^\top \in \mathbb{R}^{2N+1}$为控制输入，$\mathbf{f}(\cdot)$为前文建立的多槽系统连续动力学，$\mathbf{g}(\cdot) \leq 0$包括温度上下限、电压上限、HTO上限与功率上限等路径约束。
 电流变化率惩罚项$\lambda_I \sum (dI_j/dt)^2$用于抑制控制抖动，保证执行机构寿命。
 
-\subsection{系统动力学离散化}
+\subsubsection{系统动力学离散化}
 
 为在数值优化框架中求解上述连续时间问题，需对系统动力学进行离散化处理。
 NMPC求解涉及两个不同的时间尺度，参考图~\ref{fig:time_scales} 所示的双层时间结构：
@@ -81,7 +83,7 @@ AWE系统的连续时间动力学由非线性常微分方程描述：
 
 其中$\boldsymbol{\chi}_{j,k} = \mathbf{x}_{k+j\frac{\delta t}{\Delta t}|k}$表示在第$k$个控制步内第$j$个仿真子步的中间状态。式~\eqref{eq:ode_discretization} 和式~\eqref{eq:state_transition} 共同构成了NMPC中的双层时间尺度状态转移模型。
 
-\subsection{离散NMPC优化问题}
+\subsubsection{离散NMPC优化问题}
 
 将连续时间问题~\eqref{eq:mpc_continuous} 经上述离散化后，在当前时刻$k$的离散NMPC优化问题如图~\ref{fig:time_scales} 所示的双层时间尺度框架下求解。
 
@@ -95,7 +97,7 @@ AWE系统的连续时间动力学由非线性常微分方程描述：
 在当前时刻$k$的离散NMPC优化问题为：
 
 \begin{align}
-  \min_{\mathbf{U}_k} \quad & J = \sum_{i=0}^{N_p-1} \Bigg[ \lambda_{track}\left(P_{total,k+i|k} - P_{ref,k+i}\right)^2 + \lambda_{temp}\sum_{j=1}^{N}\left(T_{s,j,k+i|k} - T_{ref}\right)^2 \nonumber \\
+  \min_{\mathbf{U}_k} \quad & \mathcal{L} = \sum_{i=0}^{N_p-1} \Bigg[ \lambda_{track}\left(P_{total,k+i|k} - P_{ref,k+i}\right)^2 + \lambda_{temp}\sum_{j=1}^{N}\left(T_{s,j,k+i|k} - T_{ref}\right)^2 \nonumber \\
   & \quad + \lambda_I \sum_{j=1}^{N}\left(I_{j,k+i|k} - I_{j,k+i-1|k}\right)^2 + \lambda_{lye} \sum_{j=1}^{N}v_{lye,j,k+i|k}^2 + \lambda_c v_{c,k+i|k}^2 \Bigg] \\
   \text{s.t.} \quad & \mathbf{g}\left(\mathbf{x}_{k+i|k}, \mathbf{u}_{k+i|k}\right) \leq 0, \quad i = 0, 1, \ldots, N_p-1 \\
   & \mathbf{x}_{k+i+1|k} - \mathbf{x}_{k+i|k} - \sum_{m=1}^{N_s} \mathbf{f}\left(\boldsymbol{\chi}_{m-1,k+i}, \mathbf{u}_{k+i|k}\right) \delta t = 0, \quad i = 0, 1, \ldots, N_p-1
@@ -119,7 +121,7 @@ AWE系统的连续时间动力学由非线性常微分方程描述：
   \item 功率约束：$P_{stack,j,k+i|k} \leq P_{stack,max}$
 \end{itemize}
 
-\subsection{NMPC求解实现}
+\subsubsection{NMPC求解实现}
 
 NMPC控制器借助CasADi符号计算框架建立优化模型，并由IPOPT求解器进行数值求解。关键实现细节包括：
 
@@ -131,7 +133,9 @@ NMPC控制器借助CasADi符号计算框架建立优化模型，并由IPOPT求�
 
 NMPC虽然能够获得高质量的优化控制序列，但其单次求解耗时约17.6~s，难以满足AWE系统的实时控制需求，且存在局部最优风险与参数调节复杂等问题。因此，本文将其作为离线专家控制器，用于生成训练数据，而非直接在线部署。
 
-\subsection{数据生成流程}
+\subsection{专家数据生成与预处理}
+
+\subsubsection{数据生成流程}
 
 专家数据集通过两类互补的功率轨迹生成，以确保覆盖真实运行场景与极端扰动工况。
 
@@ -179,19 +183,19 @@ NMPC虽然能够获得高质量的优化控制序列，但其单次求解耗时�
 \end{equation}
 其中$\mathbf{o}_k$为策略条件输入，包含当前状态、上一时刻控制输入与未来$N_p$步的功率计划，$\mathbf{u}_k^\star$为NMPC给出的专家动作。
 
-\subsection{场景覆盖与数据质量控制}
+\subsubsection{场景覆盖与数据质量控制}
 
 为增强数据集的代表性，专家数据生成覆盖多段功率轨迹与多组初始条件。
 每条轨迹开始时，对关键状态（如各槽温度、分离器状态量）进行扰动初始化，以覆盖不同热态与杂质累积水平。
 为保证样本质量，若NMPC在个别时刻未能收敛，则跳过该时刻的样本或采用上一时刻可行解作为回退控制，以避免引入明显的异常标签。
 
-\subsection{数据格式与预处理}
+\subsubsection{数据格式与预处理}
 
 训练数据以控制周期为采样间隔，输入为$\mathbf{o}_k$，监督标签为$\mathbf{u}_k^\star$。
 对各维状态与控制量采用按维线性归一化或标准化处理，使不同量纲的变量在网络训练中具有可比尺度。
 数据集按轨迹划分为训练集与测试集，以避免同一条闭环轨迹在不同划分间造成信息泄漏。
 
-\section{DiffusionTCN离线学习策略生成器}
+\section{TCN Diffusion离线学习策略生成器}
 
 \subsection{扩散模型策略}
 
@@ -296,11 +300,11 @@ DDPM包含前向与反向两个对偶的马尔可夫过程。前向过程从原�
     使用物理模型推演轨迹$\boldsymbol{\tau}^{(i)}$
 
     计算综合代价：
-    $J^{(i)} = \lambda_{track}J_{track}^{(i)} + \lambda_{temp}J_{temp}^{(i)} + \lambda_{I}J_{I}^{(i)} + \lambda_{lye}J_{lye}^{(i)} + \lambda_{c}J_{c}^{(i)}$
+    $\mathcal{L}^{(i)} = \lambda_{track}\ell_{track}^{(i)} + \lambda_{temp}\ell_{temp}^{(i)} + \lambda_{I}\ell_{I}^{(i)} + \lambda_{lye}\ell_{lye}^{(i)} + \lambda_{c}\ell_{c}^{(i)}$
   }
 
   % 选取最优序列
-  选取代价最小的动作索引：$i^* = \arg\min_i J^{(i)}$
+  选取代价最小的动作索引：$i^* = \arg\min_i \mathcal{L}^{(i)}$
 
   提取首步动作：$\mathbf{a}_t = \mathbf{a}^{(i^*)}_0$
 
@@ -310,11 +314,11 @@ DDPM包含前向与反向两个对偶的马尔可夫过程。前向过程从原�
 \section{安全约束保证机制}
 
 控制障碍函数（Control Barrier Function, CBF）从李导数出发，为安全约束提供了可严格证明的前向不变性框架~\cite{Ames2019CBF}。
-本节针对AWE系统的HTO非仿射约束与温度约束，建立混合阶CBF/HOCBF联合安全框架：首先回顾CBF与HOCBF的基本概念（3.4.1），随后分别推导HTO约束的二阶HOCBF形式（3.4.2）与温度约束的一阶CBF形式（3.4.3），最后将两类约束统一为多重CBF联合优化问题并给出求解算法（3.4.4）。
+本节针对AWE系统的HTO非仿射约束与温度约束，建立多重CBF联合安全框架：首先回顾CBF基本概念（3.4.1），随后分别推导HTO约束（3.4.2）与温度约束（3.4.3）的CBF形式，最后将两类约束统一为多重CBF联合优化问题并给出求解算法（3.4.4）。
 
 \subsection{CBF基本概念}
 
-在将CBF理论应用于AWE系统之前，需先明确一阶CBF与高阶HOCBF的数学定义及其适用边界。一阶CBF要求控制输入直接出现在约束函数的一阶导数中；当该条件不满足或灵敏度不足时，需引入HOCBF以约束高阶导数，从而获得更平滑的安全边界响应。以下依次给出二者的形式化定义，并分析其在本文AWE场景下的适用性。
+在将CBF理论应用于AWE系统之前，需先明确一阶CBF的数学定义与适用条件。一阶CBF要求控制输入直接出现在约束函数的一阶导数中，适用于控制灵敏度充足的场景。
 
 考虑一般非线性控制系统$\dot{\mathbf{x}} = \mathbf{f}(\mathbf{x}, \mathbf{u})$，其中$\mathbf{x}\in\mathbb{R}^n$，$\mathbf{u}\in\mathcal{U}\subset\mathbb{R}^m$。设安全集$\mathcal{C}$定义为：
 \begin{equation}
@@ -331,40 +335,11 @@ DDPM包含前向与反向两个对偶的马尔可夫过程。前向过程从原�
 \end{equation}
 式~\eqref{eq:cbf_condition} 保证了安全集$\mathcal{C}$的前向不变性：若$\mathbf{x}(0)\in\mathcal{C}$，则对所有$t\ge 0$有$\mathbf{x}(t)\in\mathcal{C}$。
 
-一阶CBF虽然能够保证安全集的前向不变性，但在某些工况下存在局限性：当$\partial \dot{h}/\partial \mathbf{u}$在边界附近灵敏度不足时，为维持$\dot{h} + \gamma h \ge 0$条件，控制器可能产生高频切换的控制量。AWE系统的HTO约束正是这种情况——其非仿射特性使一阶CBF在边界附近易导致电流和流量的剧烈抖动，不利于执行机构寿命与系统稳定运行。
-高阶控制障碍函数（High-Order CBF, HOCBF）通过约束高阶导数$\ddot{h}$来解决这一问题，使安全边界具备高阶平滑特性，从而抑制控制响应的高频振荡。
+对于AWE系统，HTO约束与温度约束的控制输入均直接出现在一阶导数中（相对度为1），满足标准CBF可解性要求，因此均采用一阶CBF处理。通过合理选取CBF增益参数$\gamma_{CBF}$并在优化目标中引入控制量参考跟踪权重，可在保证安全性的同时获得平滑的控制响应。
 
-定义HOCBF层级函数：
-\begin{equation}
-\begin{aligned}
-\psi_0(\mathbf{x}) &= h(\mathbf{x}) \\
-\psi_1(\mathbf{x},\mathbf{u}) &= \dot{\psi}_0 + \alpha_1(\psi_0) \\
-\psi_2(\mathbf{x},\mathbf{u}) &= \dot{\psi}_1 + \alpha_2(\psi_1) \\
-&\vdots \\
-\psi_r(\mathbf{x},\mathbf{u}) &= \dot{\psi}_{r-1} + \alpha_r(\psi_{r-1}) \ge 0
-\end{aligned}
-\end{equation}
-其中$\alpha_i \in \mathcal{K}$为扩展类$\mathcal{K}$函数，通常取线性形式$\alpha_i(s) = \alpha_i \cdot s$。
+\subsection{HTO约束的CBF推导}
 
-对于二阶HOCBF（$r=2$），有：
-\begin{equation}
-\begin{aligned}
-\psi_0 &= h \\
-\psi_1 &= \dot{h} + \alpha_1 h \\
-\psi_2 &= \ddot{h} + \alpha_2 \psi_1 \ge 0
-\end{aligned}
-\end{equation}
-展开得：
-\begin{equation}
-\ddot{h} + \alpha_2 \dot{h} + \alpha_2 \alpha_1 h \ge 0
-\end{equation}
-这等价于一个二阶低通滤波器作用于$h$，要求$h$以平滑动态趋近于零边界。
-
-基于上述理论分析，针对本文四槽AWE系统的具体约束特性，可做如下选择：HTO约束虽在一阶导数中显含控制输入（相对度为1），但其非仿射特性使一阶CBF在边界附近易导致控制量高频切换，因此采用二阶HOCBF使安全边界具备高阶平滑特性，抑制控制响应的高频振荡；温度约束的相对度为1，控制输入直接出现在一阶导数中且灵敏度充足，采用一阶CBF即可满足要求。
-
-\subsection{HTO约束的二阶HOCBF推导}
-
-HTO约束是AWE系统安全控制的核心难点之一：其动态涉及气液分离器温度与气相氢含量的耦合，且电流通过法拉第效率以非仿射形式进入约束导数。这使得一阶CBF在边界附近易出现控制量高频切换。因此，本节对HTO约束进行完整的二阶HOCBF推导，明确其李导数结构，为后续联合优化提供可计算的约束条件。
+HTO约束是AWE系统安全控制的核心难点之一：其动态涉及气液分离器温度与气相氢含量的耦合，且电流通过法拉第效率以非仿射形式进入约束导数。本节推导HTO约束的一阶CBF李导数形式，为后续联合优化提供可计算的约束条件。
 
 以HTO约束为例，推导其CBF李导数。根据理想气体状态方程$PV=nRT$，气相中氢气的体积百分比为：
 \begin{equation}
@@ -430,32 +405,14 @@ CBF的时间导数由链式法则给出：
 
 上述分析表明，HTO安全约束对电流与碱液流量的响应方向并非恒定，而是取决于当前状态（尤其是$\beta(\mathbf{x})$的符号）。这进一步说明，仅凭定性经验难以保证安全，必须借助CBF的定量约束条件实现系统性安全控制。
 
-二阶HOCBF要求对$\dot{h}_{HTO}$再求一次时间导数。在控制周期$\Delta t$内将控制输入$\mathbf{u}$视为分段恒定，则：
+基于式~\eqref{eq:h_hto_expanded} 推导得到的一阶李导数$\dot{h}_{HTO}(\mathbf{x}, \mathbf{u})$，HTO约束的一阶CBF条件为：
 \begin{equation}
-  \ddot{h}_{HTO} = \frac{d}{dt}\dot{h}_{HTO} = \nabla_{\mathbf{x}} \dot{h}_{HTO} \cdot f(\mathbf{x}, \mathbf{u})
+  \dot{h}_{HTO}(\mathbf{x}, \mathbf{u}) + \gamma_{HTO} \, h_{HTO}(\mathbf{x}) \ge 0
+\label{eq:cbf_hto}
 \end{equation}
-将$\dot{h}_{HTO} = -K_{HTO}(x_7 \dot{x}_3 + x_3 \dot{x}_7)$代入并应用乘积法则，可得：
-\begin{equation}
-  \ddot{h}_{HTO} = -K_{HTO}\left( 2\dot{x}_3\dot{x}_7 + x_7\ddot{x}_3 + x_3\ddot{x}_7 \right)
-\end{equation}
-其中$\ddot{x}_3$与$\ddot{x}_7$可通过对分离器热平衡与气相氢气动态进一步求导得到，涉及各槽温度变化率$\dot{T}_{s,i}$、流量变化率及法拉第效率对温度的偏导数等项。
-上述二阶导数的完整显式表达式涉及大量状态耦合项，手工推导易出错且占用篇幅。因此，实际实现中借助CasADi符号自动微分直接计算$\nabla_{\mathbf{x}}\dot{h}_{HTO}$，再与系统动态$f(\mathbf{x},\mathbf{u})$做矩阵-向量乘积得到$\ddot{h}_{HTO}$，在确保导数精度的同时保持代码简洁性。
+其中$\gamma_{HTO} > 0$为CBF增益参数，决定HTO安全边界的收敛速率。
 
-据此，定义HOCBF层级函数：
-\begin{equation}
-  \begin{aligned}
-    \psi_0(\mathbf{x}) &= h_{HTO}(\mathbf{x}), \\
-    \psi_1(\mathbf{x}, \mathbf{u}) &= \dot{h}_{HTO}(\mathbf{x}, \mathbf{u}) + \alpha_1 \psi_0(\mathbf{x}), \\
-    \psi_2(\mathbf{x}, \mathbf{u}) &= \ddot{h}_{HTO}(\mathbf{x}, \mathbf{u}) + \alpha_2 \psi_1(\mathbf{x}, \mathbf{u}) \ge 0
-  \end{aligned}
-\end{equation}
-其中$\alpha_1, \alpha_2 > 0$为设计参数。展开得：
-\begin{equation}
-  \ddot{h}_{HTO} + \alpha_2 \dot{h}_{HTO} + \alpha_2 \alpha_1 h_{HTO} \ge 0
-\end{equation}
-这等价于一个二阶低通滤波器作用于$h_{HTO}$，要求$h_{HTO}$以平滑动态趋近于零边界。
-$\alpha_1$决定$h_{HTO}$趋近边界的指数衰减速度，$\alpha_2$则限制$\dot{h}_{HTO}$的变化率，防止控制突变。
-在实际实现中取$\alpha_1 = 0.8$、$\alpha_2 = 2.0$，对应自然频率$\omega_n = \sqrt{\alpha_1\alpha_2} \approx 1.26$~rad/s与阻尼比$\zeta = 0.5\sqrt{\alpha_2/\alpha_1} \approx 0.79$，提供快速且平滑的边界响应。该参数选取兼顾了响应速度与平滑性，确保HTO在逼近安全边界时不会产生导致执行机构疲劳的控制抖动，从而适配工业电解槽的长期运行需求。
+在实际实现中，采用状态自适应的CBF增益策略：当HTO远离安全边界（$h_{HTO}$较大）时，取较大的$\gamma_{HTO}$以降低保守性，允许系统以更自然的动态运行；当HTO逼近边界（$h_{HTO}$较小）时，自动减小$\gamma_{HTO}$以增强约束强度，确保安全性。该策略通过Sigmoid函数实现平滑切换，避免增益突变导致的控制量抖振。同时，在优化目标中引入控制量参考跟踪权重$u_{\rm weight}$，对电流、碱液流量与冷却水流量分别设置不同的偏离惩罚系数，使CBF在满足安全约束的前提下尽可能贴近参考控制量，从而获得平滑的控制响应。
 
 \subsection{温度约束的CBF推导}
 
@@ -526,26 +483,26 @@ $\psi(\mathbf{x})$仅依赖于状态$x_2 = T_s$，反映对流与辐射散热的
   \begin{array}{ll}
     h_1(\mathbf{x}) = 363.15 - x_2, & \text{（温度上限，90$^\circ$C，一阶CBF）} \\
     h_2(\mathbf{x}) = x_2 - 293.15, & \text{（温度下限，20$^\circ$C，一阶CBF）} \\
-    h_3(\mathbf{x}) = 0.02 - K_{HTO} \cdot x_3 \cdot x_7, & \text{（HTO上限，二阶HOCBF）}
+    h_3(\mathbf{x}) = 0.02 - K_{HTO} \cdot x_3 \cdot x_7, & \text{（HTO上限，一阶CBF）}
   \end{array}
   \label{eq:multi_cbf_set}
 \end{equation}
 
-温度约束采用一阶CBF条件，因其控制输入直接出现在一阶导数$\dot{h}_1$、$\dot{h}_2$中（见式~\eqref{eq:h1_dot}与式~\eqref{eq:h2_dot}），相对度为1，满足标准CBF可解性要求。HTO约束则采用二阶HOCBF条件，通过引入二阶李导数$L_f^2 h_{HTO}$与一阶补偿项$\alpha_1 h_{HTO}$，可在气液分离动态响应较慢的工况下提供更强的安全裕度与鲁棒性。
+温度约束采用一阶CBF条件，因其控制输入直接出现在一阶导数$\dot{h}_1$、$\dot{h}_2$中（见式~\eqref{eq:h1_dot}与式~\eqref{eq:h2_dot}），相对度为1，满足标准CBF可解性要求。HTO约束同样采用一阶CBF条件，通过式~\eqref{eq:h_hto_expanded}中碱液流量的仿射作用以及电流的非仿射耦合，可直接构建控制可解的安全约束。
 
-在每个控制时刻，CBF安全滤波器将上述不同阶次的条件同时作为不等式约束，求解以下优化问题：
+在每个控制时刻，CBF安全滤波器将上述条件同时作为不等式约束，求解以下优化问题：
 \begin{equation}
   \begin{aligned}
     \min_{\mathbf{u}\in\mathcal{U},\,\mathbf{s}\ge 0} \quad & \|\mathbf{u} - \mathbf{u}_{ref}\|_2^2 + \sum_{i=1}^{9} \rho_i s_i^2 \\
     \text{s.t.} \quad & \dot{h}_1(\mathbf{x}, \mathbf{u}) + \gamma_1 h_1(\mathbf{x}) \ge -s_1 \\
     & \dot{h}_2(\mathbf{x}, \mathbf{u}) + \gamma_2 h_2(\mathbf{x}) \ge -s_2 \\
-    & L_f^2 h_{HTO}(\mathbf{x}, \mathbf{u}) + \alpha_2 \bigl[ L_f h_{HTO}(\mathbf{x}, \mathbf{u}) + \alpha_1 h_{HTO}(\mathbf{x}) \bigr] \ge -s_{HTO} \\
+    & \dot{h}_{HTO}(\mathbf{x}, \mathbf{u}) + \gamma_{HTO} h_{HTO}(\mathbf{x}) \ge -s_{HTO} \\
     & \mathbf{u}_{min} \le \mathbf{u} \le \mathbf{u}_{max}
   \end{aligned}
   \label{eq:cbf_optimization}
 \end{equation}
 
-式中$\gamma_1, \gamma_2 > 0$为温度CBF的类增益参数，决定安全边界收敛速率，典型取值范围为$0.5 \sim 2.0$；$\alpha_1, \alpha_2 > 0$为HTO-HOCBF的补偿系数，实验中取$\alpha_1 = 1, \alpha_2 = 2$以兼顾响应速度与保守性。$s_i \ge 0$为各约束对应的松弛变量，用于处理极端工况下约束暂时不可行的情形：当系统状态已越过安全边界或控制输入饱和导致CBF条件无法满足时，松弛变量允许约束以可控幅度临时放宽，避免优化问题无可行解而导致控制器失效。$\rho_i > 0$为松弛惩罚系数，取值越大，对约束违反的惩罚越重，松弛量越趋近于零。本文对所有9条约束统一取$\rho_i = 5000$，该数值在数值实验中表现出良好的折中——既能在可行情形下将松弛量抑制在$10^{-4}$量级以下，又能在极端瞬态（如功率骤降导致的HTO急剧上升）中保持优化问题的数值可行性。由于HTO约束包含$u_1 \cdot \eta_F(u_1, x_2)$这一关于电流的非仿射项以及二阶李导数$L_f^2 h_{HTO}$，标准的二次规划（QP）方法不再适用，需采用CasADi/IPOPT等通用非线性规划求解器进行数值求解。
+式中$\gamma_1, \gamma_2, \gamma_{HTO} > 0$为各CBF的类增益参数，决定安全边界收敛速率，典型取值范围为$0.5 \sim 2.0$。$s_i \ge 0$为各约束对应的松弛变量，用于处理极端工况下约束暂时不可行的情形：当系统状态已越过安全边界或控制输入饱和导致CBF条件无法满足时，松弛变量允许约束以可控幅度临时放宽，避免优化问题无可行解而导致控制器失效。$\rho_i > 0$为松弛惩罚系数，取值越大，对约束违反的惩罚越重，松弛量越趋近于零。本文对所有9条约束统一取$\rho_i = 5000$，该数值在数值实验中表现出良好的折中——既能在可行情形下将松弛量抑制在$10^{-4}$量级以下，又能在极端瞬态（如功率骤降导致的HTO急剧上升）中保持优化问题的数值可行性。由于HTO约束包含$u_1 \cdot \eta_F(u_1, x_2)$这一关于电流的非仿射项，标准的二次规划（QP）方法不再适用，需采用CasADi/IPOPT等通用非线性规划求解器进行数值求解。
 
 CBF安全滤波器的具体执行流程如算法~\ref{algo:cbf_filter} 所示。
 
@@ -578,16 +535,16 @@ CBF安全滤波器的具体执行流程如算法~\ref{algo:cbf_filter} 所示。
   \For{每个控制周期$t = 0, 1, 2, \ldots$}{
     采样$K$条候选动作序列$\{\mathbf{a}^{(i)}\}_{i=1}^K \sim \pi_\theta(\mathbf{x}_t, P_{ref,t:t+N_p-1})$\\
     \For{$i = 1, \ldots, K$}{
-      使用物理模型推演轨迹并计算代价$J^{(i)}$\\
+      使用物理模型推演轨迹并计算代价$\mathcal{L}^{(i)}$\\
     }
-    选取代价最小的动作作为名义动作$\mathbf{u}_{nom} = \mathbf{a}^{(\arg\min_i J^{(i)})}_0$\\
+    选取代价最小的动作作为名义动作$\mathbf{u}_{nom} = \mathbf{a}^{(\arg\min_i \mathcal{L}^{(i)})}_0$\\
     $\mathbf{u}_t \leftarrow \mathcal{F}_{CBF}(\mathbf{u}_{nom}, \mathbf{x}_t)$ \tcp*{CBF安全滤波}
     将$\mathbf{u}_t$施加到多时间尺度仿真器，推进至下一状态$\mathbf{x}_{t+1}$\\
   }
   \Return{$\{\mathbf{x}_t\}, \{\mathbf{u}_t\}$}
 \end{algorithm}
 
-综上，本节建立了面向四槽AWE系统的混合阶CBF/HOCBF联合安全框架：温度约束采用一阶CBF，HTO约束采用二阶HOCBF以抑制非仿射特性导致的控制高频抖动，二者统一为逐时刻非线性约束优化问题并通过CasADi/IPOPT求解。该框架为生成模型控制策略提供了严格的前向不变性保证，且单次求解时间低于20~ms，满足实时控制要求。
+综上，本节建立了面向四槽AWE系统的多重CBF联合安全框架：温度约束与HTO约束均采用一阶CBF条件，统一纳入逐时刻非线性约束优化问题，通过CasADi/IPOPT进行数值求解。该框架为生成模型控制策略提供了严格的前向不变性保证，且单次求解时间低于20~ms，满足实时控制要求。
 下文将通过闭环仿真实验，验证CBF约束保证机制在四槽AWE系统中的实际控制效果。
 
 \section{实验验证与结果分析}
@@ -597,27 +554,7 @@ CBF安全滤波器的具体执行流程如算法~\ref{algo:cbf_filter} 所示。
 开环验证旨在检验所建立的多槽AWE系统模型能否准确复现真实电解槽在无反馈条件下的控制-响应耦合特性，尤其是电流、碱液流量与冷却水流量对电解槽温度及HTO浓度的跨槽耦合影响。
 实验采用第\ref{chap:modeling}章建立的4槽物理仿真模型，状态维度为13维，控制维度为9维，ODE积分采用RK45方法（$dt=0.2$~s），热力学模型包含电化学反应热、对流/辐射散热及换热器LMTD模型，HTO动力学基于Fick扩散、Darcy对流与气液分离器质量平衡。
 
-系统初始条件如表~\ref{tab:open_loop_init}所示。
-
-\begin{table}[!htbp]
-  \centering
-  \caption{开环验证初始条件}
-  \label{tab:open_loop_init}
-  \begin{tabular}{ccc}
-    \toprule
-    状态变量 & 数值 & 备注 \\
-    \midrule
-    电解槽温度 $T_{s1\sim4}$ & 85$^\circ$C（358~K） & 4槽相同 \\
-    分离器温度 $T_{\mathrm{sep}}$ & 73$^\circ$C（345~K） & — \\
-    换热器出口碱液温度 $T_{s,\mathrm{in}}$ & 72$^\circ$C（345~K） & 近似设定 \\
-    冷却水出口温度 $T_{c,\mathrm{out}}$ & 52$^\circ$C（325~K） & — \\
-    HTO浓度 & 0.52\% & 气相氢中氧体积分数 \\
-    H$_2$物质的量分布 & $n_{\mathrm{gas}}=n_{\mathrm{liq}}=n_{\mathrm{H}_2,\mathrm{an},i}\times4$ & 由HTO反算 \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-
-实验在系统达到热力学稳态后开展，稳态时电解槽温度约77.1$^\circ$C，分离器温度约77.0$^\circ$C，HTO约0.458\%。
+系统初始状态取热力学稳态解：四槽温度均为77.1$^\circ$C（350.25~K），分离器温度77.0$^\circ$C（350.15~K），换热器出口碱液温度77.0$^\circ$C（350.15~K），冷却水出口温度52.0$^\circ$C（325.15~K），HTO浓度0.458\%，各阳极室与分离器内氢气物质的量由HTO平衡反算确定。
 在此基础上，从$t=0$时刻起依次施加5个阶跃扰动，以验证不同控制动作对系统状态的独立影响与耦合效应。动作序列如表~\ref{tab:open_loop_actions}所示。
 
 \begin{table}[!htbp]
@@ -648,8 +585,45 @@ HTO方面，Action I使HTO轻微下降（碱液流量减少导致携带H$_2$进�
 
 \begin{figure}[!htbp]
   \centering
-  \includegraphics[width=0.98\textwidth]{figures/open_loop_response.png}
+  \begin{subfigure}{0.31\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/open_loop_response_a.png}
+    \caption{}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.31\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/open_loop_response_b.png}
+    \caption{}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.31\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/open_loop_response_c.png}
+    \caption{}
+  \end{subfigure}
+
+  \vspace{6bp}
+  \begin{subfigure}{0.31\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/open_loop_response_d.png}
+    \caption{}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.31\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/open_loop_response_e.png}
+    \caption{}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.31\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/open_loop_response_f.png}
+    \caption{}
+  \end{subfigure}
   \caption{多槽AWE系统开环动态响应}
+  \captionsetup{font=normalfont}
+  \caption*{(a) 电解槽电流；(b) 碱液流量；(c) 冷却水流量；(d) 电解槽与分离器温度；(e) HTO浓度；(f) 总功率}
   \label{fig:open_loop_response}
 \end{figure}
 
@@ -669,8 +643,44 @@ HTO安全方面，四种方法均能将气相氢气浓度控制在2\%安全阈�
 
 \begin{figure}[!htbp]
   \centering
-  \includegraphics[width=0.98\textwidth]{figures/controller_step_comparison.png}
-  \caption{TCN Diffusion、Diffusion MLP、NMPC与MLP阶跃响应对比。其中，(a) 总功率跟踪；(b) 电解槽温度；(c) 氢氧杂质含量；(d) 电解槽电流；(e) 碱液流量；(f) 冷却水流量。}
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/controller_step_comparison_a.png}
+    \caption{}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/controller_step_comparison_b.png}
+    \caption{}
+  \end{subfigure}
+
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/controller_step_comparison_c.png}
+    \caption{}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/controller_step_comparison_d.png}
+    \caption{}
+  \end{subfigure}
+
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/controller_step_comparison_e.png}
+    \caption{}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/controller_step_comparison_f.png}
+    \caption{}
+  \end{subfigure}
+  \caption{TCN Diffusion、Diffusion MLP、NMPC与MLP阶跃响应对比}
+  \captionsetup{font=normalfont}
+  \caption*{(a) 总功率跟踪；(b) 电解槽温度；(c) 氢氧杂质含量；(d) 电解槽电流；(e) 碱液流量；(f) 冷却水流量}
   \label{fig:controller_step_comparison}
 \end{figure}
 
@@ -683,8 +693,20 @@ TCN Diffusion总成本最低，且在温度控制、碱液平滑与生产均衡�
 
 \begin{figure}[!htbp]
   \centering
-  \includegraphics[width=0.98\textwidth]{figures/controller_cost_comparison.png}
-  \caption{四种控制方法总成本及单步计算时间对比。其中，(a) 各成本分量对比；(b) 单步计算时间对比。}
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/controller_cost_comparison_a.png}
+    \caption{}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/controller_cost_comparison_b.png}
+    \caption{}
+  \end{subfigure}
+  \caption{四种控制方法总成本及单步计算时间对比}
+  \captionsetup{font=normalfont}
+  \caption*{(a) 各成本分量对比；(b) 单步计算时间对比}
   \label{fig:controller_cost_comparison}
 \end{figure}
 
@@ -696,8 +718,44 @@ TCN Diffusion总成本最低，且在温度控制、碱液平滑与生产均衡�
 
 \begin{figure}[!htbp]
   \centering
-  \includegraphics[width=0.98\textwidth]{figures/controller_wind_comparison.png}
-  \caption{TCN Diffusion、Diffusion MLP、NMPC与MLP风电功率跟踪对比。其中，(a) 总功率跟踪；(b) 电解槽温度；(c) 氢氧杂质含量；(d) 电解槽电流；(e) 碱液流量；(f) 冷却水流量。}
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/controller_wind_comparison_a.png}
+    \caption{}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/controller_wind_comparison_b.png}
+    \caption{}
+  \end{subfigure}
+
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/controller_wind_comparison_c.png}
+    \caption{}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/controller_wind_comparison_d.png}
+    \caption{}
+  \end{subfigure}
+
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/controller_wind_comparison_e.png}
+    \caption{}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/controller_wind_comparison_f.png}
+    \caption{}
+  \end{subfigure}
+  \caption{TCN Diffusion、Diffusion MLP、NMPC与MLP风电功率跟踪对比}
+  \captionsetup{font=normalfont}
+  \caption*{(a) 总功率跟踪；(b) 电解槽温度；(c) 氢氧杂质含量；(d) 电解槽电流；(e) 碱液流量；(f) 冷却水流量}
   \label{fig:controller_wind_comparison}
 \end{figure}
 
@@ -749,37 +807,76 @@ TCN Diffusion总成本最低，且在温度控制、碱液平滑与生产均衡�
 
 \subsubsection{低功率HTO约束保护实验}
 
-系统初始运行于3000~A稳态，$t=60$~min时刻参考电流阶跃降至1000~A，模拟可再生能源出力骤降。该工况下产气速率下降而气液分离动态滞后，阳极侧氢气累积导致HTO上升。CBF参数取$\alpha_1=1$、$\alpha_2=2$、$\rho=5000$，与温度CBF联合构成混合阶约束体系。
-
-图~\ref{fig:cbf_hto_protection} 展示了闭环验证结果。HTO子图顶部红色指示条标记了CBF触发时刻。尽管动态滞后导致HTO呈上升趋势，CBF安全滤波通过及时增大碱液流量并适度调节电流，将HTO严格抑制在2\%安全阈值以下（峰值2.06\%）。这一控制分配与式~\eqref{eq:h_hto_expanded} 的物理结构一致：碱液流量以仿射形式直接作用于$\dot{h}_{HTO}$，调节灵敏度最高，故CBF优先通过增大流量快速抑制氢气累积；电流则以非仿射耦合项$\gamma(\mathbf{x}) \cdot u_1 \cdot \eta_F$进入约束，受法拉第效率饱和特性制约，其边际改善有限且伴随功率损失，因此仅被适度调节。为定量验证一阶CBF与二阶HOCBF在相同工况下的控制品质差异，补充了对比实验：保持实验条件完全一致（初始3000~A稳态，$t=60$~min阶跃降至1000~A，$\alpha_1=1$、$\rho=5000$），分别关闭与启用二阶HOCBF机制。
-图~\ref{fig:cbf_order_comparison} 展示了对比结果。保持实验条件完全一致（初始3000~A稳态，$t=60$~min阶跃降至1000~A，$\rho=5000$、$h_{\rm margin}=0.001$）：一阶CBF（$\gamma=10$，不使用$u_{\rm weight}$）虽能将HTO峰值抑制在1.95\%，但控制量出现显著高频震荡，$|\Delta I|$均值高达99.7~A，总电流在5--12~kA范围内持续振荡；二阶HOCBF采用混合阶设计——HTO通道取$\alpha_1=10$、$\alpha_2=2$以提供高阶平滑特性，温度通道取$\alpha_1=20$、$\alpha_2=20$近似一阶CBF——并启用$u_{\rm weight}$（电流权重$500$、碱液权重$20$），将HTO峰值严格控制在1.97\%（低于2\%安全限），同时$|\Delta I|$均值降至5.3~A，碱液流量$|\Delta v_{\rm lye}|$均值仅0.04~L/s，控制动作显著平滑，阶跃后的稳态阶段未出现持续高频抖振。
-这一现象可由相对度理论解释：一阶CBF仅要求$\dot{h}_{HTO}+\alpha_1 h_{HTO}\geq 0$，其约束对控制量的变化率无直接限制，优化器在约束边界与参考跟踪之间频繁切换，导致控制量高频抖振；二阶HOCBF通过引入辅助函数$\psi_1 = \dot{h}_{HTO} + \alpha_1 h_{HTO}$并约束$\dot{\psi}_1 + \alpha_2 \psi_1 \geq 0$，实质上等价于对控制量的变化率施加了惯性约束，配合$u_{\rm weight}$对参考跟踪的强权重，有效抑制了非仿射特性导致的高频抖动，验证了混合阶框架在控制抖振抑制方面的有效性。
+系统初始运行于3000~A稳态，$t=60$~min时刻参考电流阶跃降至1000~A，模拟可再生能源出力骤降。该工况下产气速率下降而气液分离动态滞后，阳极侧氢气累积导致HTO上升。CBF参数取$\gamma_{HTO}=1$、$\rho=5000$，与温度CBF联合构成多重约束体系。闭环验证结果如图~\ref{fig:cbf_hto_protection} 所示。
 
 \begin{figure}[!htbp]
   \centering
-  \includegraphics[width=0.98\textwidth]{figures/cbf_order_comparison.png}
-  \caption{一阶CBF与二阶HOCBF在HTO约束保护工况下的对比。其中，(a) 电解槽电流；(b) 碱液流量；(c) 冷却水流量；(d) HTO安全控制。}
-  \label{fig:cbf_order_comparison}
-\end{figure}
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/cbf_hto_protection_a.png}
+    \caption{}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/cbf_hto_protection_b.png}
+    \caption{}
+  \end{subfigure}
 
-\begin{figure}[!htbp]
-  \centering
-  \includegraphics[width=0.98\textwidth]{figures/cbf_hto_protection.png}
-  \caption{多重CBF联合约束闭环验证结果（HTO约束保护工况）。其中，(a) 电解槽电流；(b) 碱液流量；(c) 冷却水流量；(d) HTO安全控制。}
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/cbf_hto_protection_c.png}
+    \caption{}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/cbf_hto_protection_d.png}
+    \caption{}
+  \end{subfigure}
+  \caption{多重CBF联合约束闭环验证结果（HTO约束保护工况）}
+  \captionsetup{font=normalfont}
+  \caption*{(a) 电解槽电流；(b) 碱液流量；(c) 冷却水流量；(d) HTO安全控制}
   \label{fig:cbf_hto_protection}
 \end{figure}
+
+图~\ref{fig:cbf_hto_protection} 中HTO子图顶部红色指示条标记了CBF触发时刻。尽管动态滞后导致HTO呈上升趋势，CBF安全滤波通过及时增大碱液流量并适度调节电流，将HTO严格抑制在2\%安全阈值以下（峰值1.99\%）。这一控制分配与式~\eqref{eq:h_hto_expanded} 的物理结构一致：碱液流量以仿射形式直接作用于$\dot{h}_{HTO}$，调节灵敏度最高，故CBF优先通过增大流量快速抑制氢气累积；电流则以非仿射耦合项$\gamma(\mathbf{x}) \cdot u_1 \cdot \eta_F$进入约束，受法拉第效率饱和特性制约，其边际改善有限且伴随功率损失，因此仅被适度调节。一阶CBF通过合理设置$\gamma_{HTO}$与松弛惩罚系数$\rho$，在确保HTO不越界的同时实现了控制量的平滑过渡，验证了本节所建立的CBF安全滤波框架在低功率HTO约束保护工况下的有效性。
 
 \subsubsection{高功率温度保护实验}
 
 系统初始运行于3000~A稳态，$t=60$~min时刻参考电流阶跃升至7500~A，模拟强产热极端工况。功率骤升导致电化学反应产热急剧增加，若不施加约束温度将迅速突破90$^\circ$C上限。CBF参数与场景一保持一致。
 
-图~\ref{fig:cbf_temp_protection} 展示了闭环验证结果。电流阶跃后各槽温度明显上升，CBF在温度接近安全边界时及时触发（共162次，占11.3\%），通过主动增加冷却水流量（从20~L/s增至最高32.5~L/s）并适度调节电流，将温度严格控制在90$^\circ$C边界（最高90.00$^\circ$C）。HTO同步保持在2\%以内（峰值1.06\%）。该控制行为可由式~\eqref{eq:h1_dot} 解释：冷却水流量以仿射形式直接作用于热平衡动态，是降低温度灵敏度最高的控制通道，因此CBF优先大幅增大冷却水以快速带走反应热；电流则以非仿射项$\alpha(\mathbf{x}, u_1)$进入约束，且由$U_{cell} > \eta_F U_{th}$可知增大电流恒导致产热增加，故CBF仅适度调节电流以避免热负荷进一步恶化。温度约束采用一阶CBF即可获得平滑且迅速的冷却水响应，无需引入二阶HOCBF，验证了3.4.2.4节混合阶策略的物理合理性。
+图~\ref{fig:cbf_temp_protection} 展示了闭环验证结果。电流阶跃后各槽温度明显上升，CBF在温度接近安全边界时及时触发（共162次，占11.3\%），通过主动增加冷却水流量（从20~L/s增至最高32.5~L/s）并适度调节电流，将温度严格控制在90$^\circ$C边界（最高90.00$^\circ$C）。HTO同步保持在2\%以内（峰值1.06\%）。该控制行为可由式~\eqref{eq:h1_dot} 解释：冷却水流量以仿射形式直接作用于热平衡动态，是降低温度灵敏度最高的控制通道，因此CBF优先大幅增大冷却水以快速带走反应热；电流则以非仿射项$\alpha(\mathbf{x}, u_1)$进入约束，且由$U_{cell} > \eta_F U_{th}$可知增大电流恒导致产热增加，故CBF仅适度调节电流以避免热负荷进一步恶化。温度约束采用一阶CBF即可获得平滑且迅速的冷却水响应，验证了CBF安全滤波框架在高温约束保护工况下的有效性。
 
-综合两个场景可见：低功率工况下HTO约束主导安全边界，二阶HOCBF通过碱液流量的平滑调节抑制氢气累积，避免了非仿射特性导致的高频抖动；高功率工况下温度约束主导，一阶CBF通过冷却水流量的直接快速响应控制热平衡，因其控制输入灵敏度充足无需引入高阶惯性。两种极端工况分别验证了混合阶CBF/HOCBF框架在不同相对度约束下的安全保证能力，且单次求解均满足实时控制要求。
+综合两个场景可见：低功率工况下HTO约束主导安全边界，一阶CBF通过碱液流量的直接调节抑制氢气累积，将HTO严格控制在安全限以内；高功率工况下温度约束主导，一阶CBF通过冷却水流量的快速响应控制热平衡。两种极端工况分别验证了多重CBF联合约束框架在不同主导约束下的安全保证能力，且单次求解均满足实时控制要求。
 
 \begin{figure}[!htbp]
   \centering
-  \includegraphics[width=0.98\textwidth]{figures/cbf_temp_protection.png}
-  \caption{多重CBF联合约束闭环验证结果（高温约束保护工况）。其中，(a) 电解槽电流；(b) 碱液流量；(c) 冷却水流量；(d) 温度安全控制。}
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/cbf_temp_protection_a.png}
+    \caption{}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/cbf_temp_protection_b.png}
+    \caption{}
+  \end{subfigure}
+
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/cbf_temp_protection_c.png}
+    \caption{}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/cbf_temp_protection_d.png}
+    \caption{}
+  \end{subfigure}
+  \caption{多重CBF联合约束闭环验证结果（高温约束保护工况）}
+  \captionsetup{font=normalfont}
+  \caption*{(a) 电解槽电流；(b) 碱液流量；(c) 冷却水流量；(d) 温度安全控制}
   \label{fig:cbf_temp_protection}
 \end{figure}
