@@ -176,16 +176,6 @@ class MultiStackSafeProjection:
         lbg.extend([self.T_min] * self.n_stacks)
         ubg.extend([self.T_max] * self.n_stacks)
 
-        # Stack power: P_stack_min <= Power_i_next <= P_stack_max for i=1..4
-        g.append(Power_next_vec)
-        lbg.extend([self.P_stack_min] * self.n_stacks)
-        ubg.extend([self.P_stack_max] * self.n_stacks)
-
-        # Cell voltage: U_cell_min <= V_cell_i_next <= U_cell_max for i=1..4
-        g.append(V_cell_next)
-        lbg.extend([self.U_cell_min] * self.n_stacks)
-        ubg.extend([self.U_cell_max] * self.n_stacks)
-
         # HTO percentage: HTO_pct_min <= hto_pct_next <= HTO_pct_max
         g.append(hto_pct_next)
         lbg.append(self.HTO_pct_min)
@@ -448,16 +438,6 @@ class MultiStackSafeProjectionScipy:
         for i in range(self.n_stacks):
             constraints.append({'type': 'ineq', 'fun': lambda u, idx=i: state_constraints(u)[idx] - self.T_min})
             constraints.append({'type': 'ineq', 'fun': lambda u, idx=i: self.T_max - state_constraints(u)[idx]})
-
-        # Power_i ∈ [P_stack_min, P_stack_max] for i=1..4
-        for i in range(self.n_stacks):
-            constraints.append({'type': 'ineq', 'fun': lambda u, idx=i: state_constraints(u)[4 + idx]})
-            constraints.append({'type': 'ineq', 'fun': lambda u, idx=i: self.P_stack_max - state_constraints(u)[4 + idx]})
-
-        # V_cell_i ∈ [U_cell_min, U_cell_max] for i=1..4
-        for i in range(self.n_stacks):
-            constraints.append({'type': 'ineq', 'fun': lambda u, idx=i: state_constraints(u)[8 + idx]})
-            constraints.append({'type': 'ineq', 'fun': lambda u, idx=i: self.U_cell_max - state_constraints(u)[8 + idx]})
 
         # HTO ∈ [HTO_pct_min, HTO_pct_max]
         constraints.append({'type': 'ineq', 'fun': lambda u: state_constraints(u)[12] - self.HTO_pct_min})

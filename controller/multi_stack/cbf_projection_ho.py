@@ -1,28 +1,35 @@
 """
-CBF-based Projection Operator for Multi-Stack AWE System
+Higher-Order CBF-based Projection Operator for Multi-Stack AWE System
 
-Implements rigorous Control Barrier Function (CBF) constraints with explicit
-Lie derivative computation: dh/dt + gamma * h >= 0
+Implements mixed-order Control Barrier Functions:
+- First-order CBF for Tmax (x4) and Tmin (x4) constraints
+- Second-order HOCBF for HTO constraint
 
-Adapted from single-stack implementation for 4-stack AWE system.
-Uses CasADi/IPOPT for the NLP.
+Second-order HTO CBF formulation:
+    psi_0 = h
+    psi_1 = L_f h + alpha1 * h
+    psi_2 = L_f^2 h + alpha2 * psi_1 >= 0
+
+where L_f^2 h = jacobian(L_f h, x) @ f(x,u)
+
+See docs/hocbf_hto_derivation.md for full mathematical derivation.
 """
 
 import numpy as np
 import casadi as ca
 
 
-class MultiStackCBFProjection:
+class MultiStackCBFProjectionHO:
     """
-    CBF projection operator with explicit Lie derivative computation.
-    Uses CasADi symbolic differentiation and IPOPT for optimization.
-
-    CBF Condition: L_f h(x,u) + gamma * h(x) >= 0
+    Mixed-order CBF projection operator.
+    HTO uses second-order CBF; temperature uses first-order CBF.
     """
 
     def __init__(self, dt=60.0, sim_dt=0.2, gamma=1.0, epsilon=1e-4, rho=1e12,
                  gamma_vec=None, rho_vec=None, h_scales=None, lie_deriv_scales=None, normalize=True,
                  h_margin_vec=None, lambda_u_scale=1000.0, soft_mask=None,
+                 alpha1_hto=0.8, alpha2_hto=2.0,
+                 alpha1_vec=None, alpha2_vec=None,
                  u_weight_scale=None):
         """
         Args:
@@ -31,7 +38,7 @@ class MultiStackCBFProjection:
             gamma: Default gamma (used if gamma_vec not provided)
             epsilon: Numerical differentiation step size (unused, kept for API compat)
             rho: Default rho (used if rho_vec not provided)
-            gamma_vec: List of gamma values for each CBF constraint
+            gamma_vec: List of gamma values for each first-order CBF constraint (fallback if alpha2_vec not set)
             rho_vec: List of rho values for each CBF constraint
             h_scales: List of h scales for normalization
             lie_deriv_scales: List of L_f h scales for normalization
@@ -39,14 +46,22 @@ class MultiStackCBFProjection:
             h_margin_vec: List of safety margins for each constraint
             lambda_u_scale: Scale factor for control change penalty (default: 1000.0).
             soft_mask: List of bool indicating whether each constraint uses soft slack
+            alpha1_hto: First-order decay rate for HTO HOCBF (default: 0.8)
+            alpha2_hto: Second-order damping for HTO HOCBF (default: 2.0)
+            alpha1_vec: Per-constraint alpha1 (9 elements). If None, uses gamma_vec for 1st-order and alpha1_hto for HTO.
+            alpha2_vec: Per-constraint alpha2 (9 elements). If None, uses 0 for 1st-order and alpha2_hto for HTO.
             u_weight_scale: Per-control weight scale for reference tracking cost (9 elements).
                 Larger value = more reluctant to deviate from reference. Default: all 1.0.
+                Use case: increase I weights (e.g., 10.0) and decrease v_c weight (e.g., 0.1)
+                to prioritize coolant flow adjustment over current adjustment.
         """
         self.dt = dt
         self.sim_dt = sim_dt
         self.gamma = gamma
         self.epsilon = epsilon
         self.normalize = normalize
+        self.alpha1_hto = alpha1_hto
+        self.alpha2_hto = alpha2_hto
 
         # Per-constraint gamma values (9 constraints: Tmax x4, HTO x1, Tmin x4)
         if gamma_vec is None:
@@ -54,6 +69,17 @@ class MultiStackCBFProjection:
             self.gamma_vec = np.array(defaults)
         else:
             self.gamma_vec = np.array(gamma_vec)
+
+        # Per-constraint alpha values for HOCBF
+        if alpha1_vec is None:
+            self.alpha1_vec = np.array(list(self.gamma_vec[:4]) + [alpha1_hto] + list(self.gamma_vec[5:9]))
+        else:
+            self.alpha1_vec = np.array(alpha1_vec)
+
+        if alpha2_vec is None:
+            self.alpha2_vec = np.array([0.0] * 4 + [alpha2_hto] + [0.0] * 4)
+        else:
+            self.alpha2_vec = np.array(alpha2_vec)
 
         # Per-constraint rho values for soft constraints
         if rho_vec is None:
@@ -158,26 +184,38 @@ class MultiStackCBFProjection:
         u_range = np.array([self.I_max - self.I_min] * 4 +
                            [self.v_lye_max - self.v_lye_min] * 4 +
                            [self.v_c_max - self.v_c_min])
-        self.lambda_u = lambda_u_scale / (u_range ** 2)
-        self.u_weight_scale = u_weight_scale
+        # Smoothing penalty disabled (set to zero)
+        self.lambda_u = np.zeros(9)
+
+        # Per-control reference tracking weight scale
+        if u_weight_scale is None:
+            self.u_weight_scale = np.ones(9)
+        else:
+            self.u_weight_scale = np.array(u_weight_scale, dtype=float)
 
         # Build symbolic CBF function for Lie derivative
         self._build_symbolic_functions()
 
     def _build_symbolic_functions(self):
-        """Build CasADi functions for h(x,u), f(x,u), and L_f h(x,u)."""
+        """Build CasADi functions for h(x,u), f(x,u), L_f h, and L_f^2 h."""
         x_sym = ca.MX.sym("x", 13)
         u_sym = ca.MX.sym("u", 9)
 
         h_sym = self._compute_h_ca(x_sym, u_sym)
         f_sym = self._compute_f_ca(x_sym, u_sym)
 
+        # First-order Lie derivative: L_f h = dh/dx @ f
         dh_dx_sym = ca.jacobian(h_sym, x_sym)
-        lie_sym = dh_dx_sym @ f_sym
+        lie1_sym = dh_dx_sym @ f_sym
+
+        # Second-order Lie derivative: L_f^2 h = d(L_f h)/dx @ f
+        # Computed for all constraints; HTO (index 4) will use it
+        dlie1_dx_sym = ca.jacobian(lie1_sym, x_sym)
+        lie2_sym = dlie1_dx_sym @ f_sym
 
         self._ca_h = ca.Function("h", [x_sym, u_sym], [h_sym])
         self._ca_f = ca.Function("f", [x_sym, u_sym], [f_sym])
-        self._ca_lie = ca.Function("lie", [x_sym, u_sym], [lie_sym, h_sym, f_sym])
+        self._ca_lie = ca.Function("lie", [x_sym, u_sym], [lie1_sym, lie2_sym, h_sym, f_sym])
 
     def _calculate_h2_solubility(self):
         """Calculate H2 Solubility in Lye (S_H2) [mol/(m^3 Pa)] - exact match with simulator"""
@@ -189,46 +227,6 @@ class MultiStackCBFProjection:
         w_lye = 0.30
         S_H2_H2O = rho_H2O * self.P_sys / (M_H2O * p_atm * H_H2)
         return S_H2_H2O / (10**(K_H2 * w_lye))
-
-    def _faraday_efficiency(self, I_vec, T_s_vec):
-        """Faraday efficiency - exact match with simulator (vectorized)"""
-        T_C = T_s_vec - 273.15
-        f1 = 50.0 + 2.5 * T_C
-        f2 = 0.92 - 6.25e-6 * T_C
-        I_sq = I_vec**2
-        return (I_sq / (f1 + I_sq)) * f2
-
-    def _cell_voltage(self, I_vec, T_s_vec):
-        """Cell voltage - exact match with simulator (vectorized)"""
-        T_C = T_s_vec - 273.15
-        R_ohm = self.r1 + self.r2 * T_s_vec + self.r3 * self.P_sys
-        V_ohm = R_ohm * I_vec
-        term_act = self.t1 + self.t2 / T_C + self.t3 / (T_C**2)
-        arg = term_act * I_vec + 1.0
-        arg_safe = np.maximum(arg, 1e-9)
-        V_act = np.where(arg > 1e-9, self.s * np.log(arg_safe), 0.0)
-        U_cell = self.U_rev + V_ohm + V_act
-        return np.maximum(U_cell, self.U_rev)
-
-    def _compute_adaptive_gamma(self, h_raw):
-        """
-        Compute state-dependent gamma using sigmoid scheduling.
-        h_raw: raw (unnormalized) h values, shape (n_cbf,)
-        Returns: adaptive_gamma, shape (n_cbf,)
-        """
-        # Per-constraint parameters for sigmoid scheduling
-        # Tmax (0-3): gamma_min=1.0, gamma_max=5.0, h_th=1.0 (1K margin), alpha=2.0
-        # HTO (4): gamma_min=2.0, gamma_max=5.0, h_th=0.003 (0.3%), alpha=2.0
-        # Tmin (5-8): gamma_min=1.0, gamma_max=5.0, h_th=10.0 (10K margin), alpha=2.0
-        gamma_min = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
-        gamma_max = np.array([5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0])
-        alpha = np.array([2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0])
-        h_th = np.array([1.0, 1.0, 1.0, 1.0, 0.003, 10.0, 10.0, 10.0, 10.0])
-
-        # Sigmoid scheduling: h >> h_th (far from boundary) -> gamma -> gamma_max (less conservative)
-        #                     h << h_th (near boundary)   -> gamma -> gamma_min (more conservative)
-        sig = 1.0 / (1.0 + np.exp(-alpha * (h_raw - h_th)))
-        return gamma_min + (gamma_max - gamma_min) * sig
 
     def _compute_h(self, state, control):
         """Compute CBF function values h(x) with safety margins (9 constraints) using NumPy."""
@@ -459,22 +457,25 @@ class MultiStackCBFProjection:
 
     def _compute_lie_derivative(self, state, control):
         """
-        Compute Lie derivative L_f h = dh/dx * f(x,u) using CasADi.
-        Returns NumPy arrays.
+        Compute Lie derivatives using CasADi.
+        Returns NumPy arrays for first-order and second-order Lie derivatives.
         """
         state_dm = ca.DM(state)
         control_dm = ca.DM(control)
-        lie_derivative, h_current, f_current = self._ca_lie(state_dm, control_dm)
-        return np.array(lie_derivative).flatten(), np.array(h_current).flatten(), None, np.array(f_current).flatten()
+        lie1, lie2, h_current, f_current = self._ca_lie(state_dm, control_dm)
+        return (np.array(lie1).flatten(), np.array(lie2).flatten(),
+                np.array(h_current).flatten(), np.array(f_current).flatten())
 
     def project(self, u_ref, state, u_last=None, verbose=False):
         """
-        Project reference control using CBF with soft constraints via CasADi/IPOPT.
+        Project reference control using mixed-order CBF with soft constraints.
 
-        Soft CBF formulation:
-            min ||u - u_ref||^2 + lambda * ||u - u_last||^2 + rho * ||s||^2
-            s.t. L_f h_i + gamma * h_i >= -s_i,  s_i >= 0
-                 u_min <= u <= u_max
+        HTO uses second-order CBF:
+            psi_1 = L_f h + alpha1 * h
+            psi_2 = L_f^2 h + alpha2 * psi_1 >= 0
+
+        Temperature uses first-order CBF:
+            L_f h + gamma * h >= 0
 
         Args:
             u_ref: Reference control [I1..4, v_lye1..4, v_c]
@@ -492,94 +493,152 @@ class MultiStackCBFProjection:
         u_last = np.asarray(u_last).flatten() if u_last is not None else u_ref.copy()
 
         # Compute current CBF values and Lie derivatives at reference
-        lie_deriv_ref, h_ref_raw, _, f_ref = self._compute_lie_derivative(state, u_ref)
-
-        # Compute state-dependent adaptive gamma based on raw h values
-        adaptive_gamma = self._compute_adaptive_gamma(h_ref_raw)
+        lie1_ref, lie2_ref, h_ref_raw, f_ref = self._compute_lie_derivative(state, u_ref)
 
         # Normalize if enabled
         if self.normalize:
-            lie_deriv_ref_norm = lie_deriv_ref / np.maximum(np.abs(self.lie_deriv_scales), 1e-10)
+            lie1_ref_norm = lie1_ref / np.maximum(np.abs(self.lie_deriv_scales), 1e-10)
+            lie2_ref_norm = lie2_ref / np.maximum(np.abs(self.lie_deriv_scales)**2, 1e-10)
             h_ref_norm = h_ref_raw / self.h_scales
-            lie_deriv_ref = lie_deriv_ref_norm
+            lie1_ref = lie1_ref_norm
+            lie2_ref = lie2_ref_norm
             h_ref = h_ref_norm
         else:
             h_ref = h_ref_raw
 
+        # Build CBF conditions
+        # Mixed-order: alpha2_vec[j] > 0 means use second-order for constraint j
+        cbf_ref = np.zeros(9)
+        for j in range(9):
+            if self.alpha2_vec[j] > 0:
+                # Second-order HOCBF
+                psi1 = lie1_ref[j] + self.alpha1_vec[j] * h_ref[j]
+                cbf_ref[j] = lie2_ref[j] + self.alpha2_vec[j] * psi1
+            else:
+                # First-order CBF (fallback)
+                cbf_ref[j] = lie1_ref[j] + self.gamma_vec[j] * h_ref[j]
+
         if verbose:
             print(f"Reference point:")
             print(f"  h = {h_ref}")
-            print(f"  L_f h = {lie_deriv_ref}")
-            gamma_h = adaptive_gamma * h_ref if self.normalize else self.gamma * h_ref
-            print(f"  L_f h + gamma*h = {lie_deriv_ref + gamma_h}")
-
-        # Check if reference already satisfies CBF (with per-constraint gamma)
-        if self.normalize:
-            cbf_ref = lie_deriv_ref + adaptive_gamma * h_ref
-        else:
-            cbf_ref = lie_deriv_ref + self.gamma * h_ref
+            print(f"  L_f h = {lie1_ref}")
+            print(f"  L_f^2 h = {lie2_ref}")
+            second_order_idx = np.where(self.alpha2_vec > 0)[0]
+            first_order_idx = np.where(self.alpha2_vec <= 0)[0]
+            if len(second_order_idx) > 0:
+                for j in second_order_idx:
+                    psi1_j = lie1_ref[j] + self.alpha1_vec[j] * h_ref[j]
+                    psi2_j = lie2_ref[j] + self.alpha2_vec[j] * psi1_j
+                    print(f"  psi_1 [{j}] = {psi1_j:.4f}, psi_2 [{j}] = {psi2_j:.4f}")
+            if len(first_order_idx) > 0:
+                print(f"  First-order CBF {list(first_order_idx)} = {cbf_ref[first_order_idx]}")
 
         if np.all(cbf_ref >= 0):
-            # Reference is already safe, but avoid snap-back if previous currents
-            # were significantly different (maintains smoothness during transients)
-            if u_last is not None and np.max(np.abs(u_last[:4] - u_ref[:4])) > 100.0:
-                # Fall through to optimizer for smooth transition
+            if u_last is not None and np.max(np.abs(u_last[:4] - u_ref[:4])) > 500.0:
                 pass
             else:
                 info = {
                     'h': h_ref,
-                    'lie_deriv': lie_deriv_ref,
+                    'lie1': lie1_ref,
+                    'lie2': lie2_ref,
                     'cbf': cbf_ref,
                     'projection_needed': False,
                     'slack': np.zeros(9)
                 }
                 return u_ref, True, info
 
-        # CBF constraint optimization with selectable soft/hard constraints
+        # CBF constraint optimization
         n_cbf = 9
         soft_idx = np.where(self.soft_mask)[0]
         n_soft = len(soft_idx)
 
-        # Normalized control weights
         u_range = np.array([self.I_max - self.I_min] * 4 +
                            [self.v_lye_max - self.v_lye_min] * 4 +
                            [self.v_c_max - self.v_c_min])
-        u_weights = 1.0 / (u_range ** 2)
-        if hasattr(self, 'u_weight_scale') and self.u_weight_scale is not None:
-            u_weights = u_weights * np.array(self.u_weight_scale)
+        u_weights = self.u_weight_scale / (u_range ** 2)
 
-        # Bounds: control bounds + slack bounds for soft constraints only
         u_min_arr = np.array([self.I_min] * 4 + [self.v_lye_min] * 4 + [self.v_c_min])
         u_max_arr = np.array([self.I_max] * 4 + [self.v_lye_max] * 4 + [self.v_c_max])
 
-        # Initial guess: start from clipped reference
         u0 = np.clip(u_ref, u_min_arr, u_max_arr)
 
-        # If reference violates CBF, search for a feasible initial guess
+        # Search for feasible initial guess
         if not np.all(cbf_ref >= 0):
             n_search = 50
             found_feasible = False
-            for alpha in np.linspace(1.0, 0.0, n_search):
-                I_test = alpha * u0[0:4]
-                u_test = np.concatenate([I_test, u0[4:8], [u0[8]]])
-                ld_test, h_test, _, _ = self._compute_lie_derivative(state, u_test)
+
+            # Helper to evaluate CBF constraints
+            def _eval_cbf_constraints(state_in, u_in):
+                lie1_t, lie2_t, h_t, _ = self._compute_lie_derivative(state_in, u_in)
                 if self.normalize:
-                    ld_test = ld_test / np.maximum(np.abs(self.lie_deriv_scales), 1e-10)
-                    h_test = h_test / self.h_scales
-                    cbf_test = ld_test + adaptive_gamma * h_test
-                else:
-                    cbf_test = ld_test + adaptive_gamma * h_test
-                if np.all(cbf_test >= 0):
-                    u0[0:4] = I_test
-                    found_feasible = True
-                    break
+                    lie1_t = lie1_t / np.maximum(np.abs(self.lie_deriv_scales), 1e-10)
+                    lie2_t = lie2_t / np.maximum(np.abs(self.lie_deriv_scales)**2, 1e-10)
+                    h_t = h_t / self.h_scales
+                cbf_t = np.zeros(9)
+                for jj in range(9):
+                    if self.alpha2_vec[jj] > 0:
+                        psi1_t_j = lie1_t[jj] + self.alpha1_vec[jj] * h_t[jj]
+                        cbf_t[jj] = lie2_t[jj] + self.alpha2_vec[jj] * psi1_t_j
+                    else:
+                        cbf_t[jj] = lie1_t[jj] + self.gamma_vec[jj] * h_t[jj]
+                return cbf_t
+
+            # Identify violated constraints
+            temp_upper_violated = np.any(cbf_ref[0:4] < 0)
+            temp_lower_violated = np.any(cbf_ref[5:9] < 0)
+            temp_violated = temp_upper_violated or temp_lower_violated
+
+            # Strategy 1: If temperature constraints violated, try increasing v_c first
+            if temp_violated and u0[8] < self.v_c_max:
+                n_vc_search = min(20, max(3, int((self.v_c_max - u0[8]) / 0.005) + 1))
+                for beta in np.linspace(1.0, 2.0, n_vc_search):
+                    v_c_test = min(beta * u0[8], self.v_c_max)
+                    if v_c_test <= u0[8]:
+                        continue
+                    u_test = np.concatenate([u0[0:4], u0[4:8], [v_c_test]])
+                    cbf_test = _eval_cbf_constraints(state, u_test)
+                    if np.all(cbf_test >= 0):
+                        u0[8] = v_c_test
+                        found_feasible = True
+                        break
+
+            # Strategy 2: Try reducing current (original approach)
             if not found_feasible:
-                hto_cbf_val = cbf_ref[4] if len(cbf_ref) > 4 else 0
+                for alpha in np.linspace(1.0, 0.0, n_search):
+                    I_test = alpha * u0[0:4]
+                    u_test = np.concatenate([I_test, u0[4:8], [u0[8]]])
+                    cbf_test = _eval_cbf_constraints(state, u_test)
+                    if np.all(cbf_test >= 0):
+                        u0[0:4] = I_test
+                        found_feasible = True
+                        break
+
+            # Strategy 3: Try both reducing current AND increasing v_c
+            if not found_feasible and temp_violated and u0[8] < self.v_c_max:
+                for alpha in np.linspace(1.0, 0.0, n_search):
+                    I_test = alpha * u0[0:4]
+                    n_vc_search = min(10, max(2, int((self.v_c_max - u0[8]) / 0.01) + 1))
+                    for beta in np.linspace(1.0, 2.0, n_vc_search):
+                        v_c_test = min(beta * u0[8], self.v_c_max)
+                        if v_c_test <= u0[8]:
+                            continue
+                        u_test = np.concatenate([I_test, u0[4:8], [v_c_test]])
+                        cbf_test = _eval_cbf_constraints(state, u_test)
+                        if np.all(cbf_test >= 0):
+                            u0[0:4] = I_test
+                            u0[8] = v_c_test
+                            found_feasible = True
+                            break
+                    if found_feasible:
+                        break
+
+            # Strategy 4: HTO-specific fallback
+            if not found_feasible:
+                hto_cbf_val = cbf_ref[4]
                 if hto_cbf_val < 0:
                     u0[0:4] = np.clip(u0[0:4] + 1000.0, 2000.0, self.I_max)
                     u0[4:8] = np.clip(u0[4:8], 0.02, self.v_lye_max)
 
-        # Initial slack only for soft constraints
         s0 = np.maximum(0, -(cbf_ref[self.soft_mask])) if n_soft > 0 else np.array([])
         us0 = np.concatenate([u0, s0])
 
@@ -589,7 +648,6 @@ class MultiStackCBFProjection:
         u_sym = us_sym[:9]
         s_sym = us_sym[9:] if n_soft > 0 else ca.MX(0, 1)
 
-        # Objective
         ref_cost = ca.sum1(u_weights * (u_sym - u_ref)**2)
         delta_cost = ca.sum1(self.lambda_u * (u_sym - u_last)**2)
         if n_soft > 0:
@@ -600,26 +658,32 @@ class MultiStackCBFProjection:
 
         # CBF constraints via symbolic function
         state_dm = ca.DM(state)
-        lie_sym, h_sym, _ = self._ca_lie(state_dm, u_sym)
+        lie1_sym, lie2_sym, h_sym, _ = self._ca_lie(state_dm, u_sym)
 
         if self.normalize:
-            lie_sym = lie_sym / np.maximum(np.abs(self.lie_deriv_scales), 1e-10)
+            lie1_sym = lie1_sym / np.maximum(np.abs(self.lie_deriv_scales), 1e-10)
+            lie2_sym = lie2_sym / np.maximum(np.abs(self.lie_deriv_scales)**2, 1e-10)
             h_sym = h_sym / self.h_scales
-            cbf_sym = lie_sym + adaptive_gamma * h_sym
-        else:
-            cbf_sym = lie_sym + adaptive_gamma * h_sym
 
-        # Build constraint vector: cbf + s >= 0
+        # Build constraint vector
         g = []
         lbg = []
         ubg = []
         s_idx = 0
         for j in range(n_cbf):
+            if self.alpha2_vec[j] > 0:
+                # Second-order HOCBF
+                psi1_sym = lie1_sym[j] + self.alpha1_vec[j] * h_sym[j]
+                cbf_j = lie2_sym[j] + self.alpha2_vec[j] * psi1_sym
+            else:
+                # First-order CBF
+                cbf_j = lie1_sym[j] + self.gamma_vec[j] * h_sym[j]
+
             if self.soft_mask[j]:
-                g.append(cbf_sym[j] + s_sym[s_idx])
+                g.append(cbf_j + s_sym[s_idx])
                 s_idx += 1
             else:
-                g.append(cbf_sym[j])
+                g.append(cbf_j)
             lbg.append(0.0)
             ubg.append(ca.inf)
 
@@ -627,7 +691,6 @@ class MultiStackCBFProjection:
         lbg = np.array(lbg)
         ubg = np.array(ubg)
 
-        # Variable bounds
         lbx = np.concatenate([u_min_arr, np.zeros(n_soft)])
         ubx = np.concatenate([u_max_arr, np.full(n_soft, ca.inf)])
 
@@ -650,7 +713,6 @@ class MultiStackCBFProjection:
 
         u_opt = np.array(result["x"][:9]).flatten()
 
-        # Parse slack: expand back to 9-dim, hard constraints get 0
         s_opt_full = np.zeros(n_cbf)
         if n_soft > 0:
             s_opt_raw = np.array(result["x"][9:]).flatten()
@@ -659,24 +721,27 @@ class MultiStackCBFProjection:
         else:
             max_slack = 0.0
 
-        lie_deriv_opt, h_opt, _, _ = self._compute_lie_derivative(state, u_opt)
+        lie1_opt, lie2_opt, h_opt, _ = self._compute_lie_derivative(state, u_opt)
 
-        # Store raw (unnormalized) values for info
-        lie_deriv_opt_raw = lie_deriv_opt.copy()
+        lie1_opt_raw = lie1_opt.copy()
+        lie2_opt_raw = lie2_opt.copy()
         h_opt_raw = h_opt.copy()
 
-        # Normalize for CBF check if enabled
         if self.normalize:
-            lie_deriv_opt = lie_deriv_opt / np.maximum(np.abs(self.lie_deriv_scales), 1e-10)
+            lie1_opt = lie1_opt / np.maximum(np.abs(self.lie_deriv_scales), 1e-10)
+            lie2_opt = lie2_opt / np.maximum(np.abs(self.lie_deriv_scales)**2, 1e-10)
             h_opt = h_opt / self.h_scales
-            cbf_opt = lie_deriv_opt + adaptive_gamma * h_opt
-        else:
-            cbf_opt = lie_deriv_opt + adaptive_gamma * h_opt
 
-        # Actual constraint violation
+        cbf_opt = np.zeros(n_cbf)
+        for j in range(n_cbf):
+            if self.alpha2_vec[j] > 0:
+                psi1_opt = lie1_opt[j] + self.alpha1_vec[j] * h_opt[j]
+                cbf_opt[j] = lie2_opt[j] + self.alpha2_vec[j] * psi1_opt
+            else:
+                cbf_opt[j] = lie1_opt[j] + self.gamma_vec[j] * h_opt[j]
+
         slack_violation = np.maximum(0, -cbf_opt)
 
-        # Feasibility override
         control_feasible = (
             np.all(u_opt >= u_min_arr - 1e-6) and
             np.all(u_opt <= u_max_arr + 1e-6)
@@ -693,8 +758,10 @@ class MultiStackCBFProjection:
         info = {
             'h': h_opt_raw,
             'h_norm': h_opt if self.normalize else None,
-            'lie_deriv': lie_deriv_opt_raw,
-            'lie_deriv_norm': lie_deriv_opt if self.normalize else None,
+            'lie1': lie1_opt_raw,
+            'lie1_norm': lie1_opt if self.normalize else None,
+            'lie2': lie2_opt_raw,
+            'lie2_norm': lie2_opt if self.normalize else None,
             'cbf': cbf_opt,
             'projection_needed': True,
             'adjustment': np.linalg.norm(u_opt - u_ref),
@@ -710,7 +777,7 @@ class MultiStackCBFProjection:
             print(f"  u = {u_opt}")
             print(f"  s = {s_opt_full}")
             print(f"  h = {h_opt}")
-            print(f"  L_f h + gamma*h = {cbf_opt}")
+            print(f"  CBF = {cbf_opt}")
             print(f"  Max slack: {max_slack:.4f}")
             if not solver_success and actual_success:
                 print(f"  [Note: IPOPT reported failure but solution is feasible - accepted]")
@@ -719,4 +786,4 @@ class MultiStackCBFProjection:
 
 
 # Alias for backward compatibility
-MultiStackCBFProjectionSimplified = MultiStackCBFProjection
+MultiStackCBFProjectionHO_Simplified = MultiStackCBFProjectionHO
