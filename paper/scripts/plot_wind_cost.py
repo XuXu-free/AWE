@@ -115,7 +115,7 @@ for idx, (name, color) in enumerate(zip(paper_models.keys(), colors)):
     ax.bar(x + idx * width, vals, width, label=name, color=color, edgecolor='white', linewidth=0.5)
 
 ax.set_ylabel('成本')
-ax.set_title('(a) 各成本分量对比', fontsize=14)
+ax.text(0.02, 0.98, '(a)', transform=ax.transAxes, fontsize=14, va='top', ha='left')
 ax.set_xticks(x + width)
 ax.set_xticklabels(components, fontsize=10)
 ax.legend(loc='best', frameon=True)
@@ -126,7 +126,7 @@ names = list(paper_models.keys())
 totals = [paper_costs[name]['total'] for name in names]
 bars = ax.bar(names, totals, color=colors, edgecolor='white', linewidth=0.5)
 ax.set_ylabel('总成本')
-ax.set_title('(b) 总成本对比', fontsize=14)
+ax.text(0.02, 0.98, '(b)', transform=ax.transAxes, fontsize=14, va='top', ha='left')
 setup_ax(ax)
 for bar in bars:
     height = bar.get_height()

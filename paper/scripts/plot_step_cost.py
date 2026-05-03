@@ -130,7 +130,7 @@ names = list(paper_models.keys())
 totals = [paper_costs[name]['total'] for name in names]
 bars = ax.bar(names, totals, color=colors, edgecolor='white', linewidth=0.5)
 ax.set_ylabel('总成本')
-ax.set_title('(a) 总成本对比', fontsize=14)
+ax.text(0.02, 0.98, '(a)', transform=ax.transAxes, fontsize=14, va='top', ha='left')
 setup_ax(ax)
 for bar in bars:
     height = bar.get_height()
@@ -145,7 +145,7 @@ if timing:
     bar_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
     bars = ax_time.bar(ordered_labels, time_vals, color=bar_colors, edgecolor='white', linewidth=0.5)
     ax_time.set_ylabel('单步计算时间 (ms)')
-    ax_time.set_title('(b) 单步计算时间对比', fontsize=14)
+    ax_time.text(0.02, 0.98, '(b)', transform=ax_time.transAxes, fontsize=14, va='top', ha='left')
     ax_time.set_yscale('log')
     setup_ax(ax_time)
     for bar in bars:
