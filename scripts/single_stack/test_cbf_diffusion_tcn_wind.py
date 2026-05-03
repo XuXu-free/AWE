@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Single-Stack Diffusion TCN + CBF with Real Wind Data (Full Diagnostics)
+Single-Stack TCN Diffusion + CBF with Real Wind Data (Full Diagnostics)
 
 Based on run_nmpc_test.py structure:
 - Loads monthly wind power profile
 - NMPC warm-up phase
-- 24h test with Diffusion TCN + CBF projection
+- 24h test with TCN Diffusion + CBF projection
 - Records complete CBF constraint reactions
 """
 
@@ -412,7 +412,7 @@ def plot_diagnostics(history, output_dir, filename):
             by_label = dict(zip(labels, handles))
             ax.legend(by_label.values(), by_label.keys())
 
-    fig.suptitle('Diffusion TCN + CBF with Wind Data: Full Diagnostics', fontsize=15, fontweight='bold')
+    fig.suptitle('TCN Diffusion + CBF with Wind Data: Full Diagnostics', fontsize=15, fontweight='bold')
     out_path = os.path.join(output_dir, filename)
     fig.savefig(out_path, dpi=150, bbox_inches='tight')
     plt.close()
@@ -437,7 +437,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--month', type=str, default='02', help='Wind month 01-12')
     parser.add_argument('--duration', type=int, default=86400, help='Test duration in seconds')
-    parser.add_argument('--no_cbf', action='store_true', help='Disable CBF projection (pure Diffusion TCN)')
+    parser.add_argument('--no_cbf', action='store_true', help='Disable CBF projection (pure TCN Diffusion)')
     args = parser.parse_args()
 
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -467,7 +467,7 @@ def main():
 
     mode_str = "CBF" if use_cbf else "NO-CBF (Pure Model)"
     print("\n" + "=" * 70)
-    print(f"Diffusion TCN + {mode_str} | Wind Month: {args.month} | Duration: {args.duration}s")
+    print(f"TCN Diffusion + {mode_str} | Wind Month: {args.month} | Duration: {args.duration}s")
     print("=" * 70)
 
     history = run_test(ctrl, initial_state, month=args.month, duration=args.duration)

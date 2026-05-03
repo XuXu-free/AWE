@@ -1,6 +1,6 @@
 """
 多槽控制器对比测试脚本
-对比 NMPC、Flow TCN、Diffusion TCN 三种控制器的性能
+对比 NMPC、Flow TCN、TCN Diffusion 三种控制器的性能
 """
 import os
 import sys
@@ -236,7 +236,7 @@ def save_comparison_plot(results, output_dir):
     labels = {
         'nmpc': 'NMPC',
         'flow_tcn': 'Flow TCN',
-        'diffusion_tcn': 'Diffusion TCN'
+        'diffusion_tcn': 'TCN Diffusion'
     }
 
     for name, data in results.items():

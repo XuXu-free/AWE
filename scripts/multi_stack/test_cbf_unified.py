@@ -36,7 +36,7 @@ def run_simulation(projector, duration=3600, u_ref=None):
     current_action = u_ref.copy()
     last_action = current_action.copy()
 
-    n_cbf = 17
+    n_cbf = 9
     history = {
         't': [],
         'I_all': [], 'I_ref_all': [],
@@ -128,8 +128,8 @@ def run_simulation(projector, duration=3600, u_ref=None):
 
 def plot_single_test(history, config, output_path):
     """Plot single multi-stack CBF test results"""
-    fig = plt.figure(figsize=(35, 36))
-    gs = fig.add_gridspec(11, 5, hspace=0.35, wspace=0.3)
+    fig = plt.figure(figsize=(35, 28))
+    gs = fig.add_gridspec(8, 5, hspace=0.35, wspace=0.3)
 
     t = np.array(history['t'])
     h_raw_arr = np.array(history['h_raw'])
@@ -177,27 +177,11 @@ def plot_single_test(history, config, output_path):
     ax.legend(fontsize=8)
     ax.grid(True)
 
-    # Row 0: Power (mean)
-    ax = fig.add_subplot(gs[0, 3])
-    power_vals = []
-    for i in range(len(t)):
-        I_vec = I_all[i]
-        T_s_vec = T_s_all[i] + 273.15
-        U_cell_vec = 1.229 + 3.202e-5 * I_vec + (8.970e-8 * T_s_vec * I_vec)
-        Power = np.sum(U_cell_vec * I_vec * 368 / 1e6)
-        power_vals.append(Power)
-    ax.plot(t, power_vals, 'c-', linewidth=2)
-    ax.axhline(y=6.0 * 4, color='r', linestyle='--', label='P_max (24MW)')
-    ax.set_title('Total Stack Power')
-    ax.set_ylabel('MW')
-    ax.legend()
-    ax.grid(True)
-
     # Row 1: HTO & Temperatures
     ax = fig.add_subplot(gs[1, 0])
     ax.plot(t, history['HTO'], 'b-', linewidth=2)
     ax.axhline(y=2.0, color='r', linestyle='--', label='Limit (2%)')
-    effective_limit = 2.0 - config.get('h_margin_vec', [0]*17)[4] * 100
+    effective_limit = 2.0 - config.get('h_margin_vec', [0]*9)[4] * 100
     if effective_limit < 2.0:
         ax.axhline(y=effective_limit, color='orange', linestyle=':', label=f'Effective ({effective_limit:.1f}%)')
     ax.fill_between(t, 2.0, max(history['HTO']) * 1.2, alpha=0.1, color='red', where=(np.array(history['HTO']) > 2.0))
@@ -215,29 +199,13 @@ def plot_single_test(history, config, output_path):
     ax.legend(ncol=2, fontsize=8)
     ax.grid(True)
 
-    ax = fig.add_subplot(gs[1, 3])
-    voltage_vals = []
-    for i in range(len(t)):
-        I_vec = I_all[i]
-        T_s_vec = T_s_all[i] + 273.15
-        U_cell_vec = 1.229 + 3.202e-5 * I_vec + (8.970e-8 * T_s_vec * I_vec)
-        voltage_vals.append(np.mean(U_cell_vec))
-    ax.plot(t, voltage_vals, 'm-', linewidth=2)
-    ax.axhline(y=2.2, color='r', linestyle='--', label='U_max (2.2V)')
-    ax.set_title('Mean Cell Voltage')
-    ax.set_ylabel('V')
-    ax.legend()
-    ax.grid(True)
-
-    # Constraint indices
+    # Constraint indices (9 constraints: Tmax x4, HTO x1, Tmin x4)
     idx_T = slice(0, 4)
     idx_HTO = 4
-    idx_V = slice(5, 9)
-    idx_P = slice(9, 13)
-    idx_Tmin = slice(13, 17)
+    idx_Tmin = slice(5, 9)
 
     # Colors matching single-stack pattern
-    colors = {'T': 'b', 'HTO': 'r', 'V': 'm', 'P': 'c', 'Tmin': 'g'}
+    colors = {'T': 'b', 'HTO': 'r', 'Tmin': 'g'}
 
     def plot_multi_stack_constraint(ax, data_arr, cidx, color_key, title, ylabel, fill_lower=None, xlabel=None):
         color = colors[color_key]
@@ -278,46 +246,32 @@ def plot_single_test(history, config, output_path):
     plot_multi_stack_constraint(fig.add_subplot(gs[3, 3]), lie_deriv_norm_arr, idx_HTO, 'HTO', 'Normalized L_f h - HTO', 'L_f h_norm')
     plot_multi_stack_constraint(fig.add_subplot(gs[3, 4]), cbf_arr, idx_HTO, 'HTO', 'CBF Condition - HTO', 'L_f h + gamma*h', fill_lower=-10)
 
-    # Row 4: h_V
-    plot_multi_stack_constraint(fig.add_subplot(gs[4, 0]), h_raw_arr, idx_V, 'V', 'Raw h_V (Voltage)', 'h', fill_lower=-1)
-    plot_multi_stack_constraint(fig.add_subplot(gs[4, 1]), h_norm_arr, idx_V, 'V', 'Normalized h_V', 'h_norm', fill_lower=-2)
-    plot_multi_stack_constraint(fig.add_subplot(gs[4, 2]), lie_deriv_raw_arr, idx_V, 'V', 'L_f h - Voltage', 'L_f h')
-    plot_multi_stack_constraint(fig.add_subplot(gs[4, 3]), lie_deriv_norm_arr, idx_V, 'V', 'Normalized L_f h - Voltage', 'L_f h_norm')
-    plot_multi_stack_constraint(fig.add_subplot(gs[4, 4]), cbf_arr, idx_V, 'V', 'CBF Condition - Voltage', 'L_f h + gamma*h', fill_lower=-10)
+    # Row 4: h_Tmin
+    plot_multi_stack_constraint(fig.add_subplot(gs[4, 0]), h_raw_arr, idx_Tmin, 'Tmin', 'Raw h_Tmin (Min Temperature)', 'h', fill_lower=-100)
+    plot_multi_stack_constraint(fig.add_subplot(gs[4, 1]), h_norm_arr, idx_Tmin, 'Tmin', 'Normalized h_Tmin', 'h_norm', fill_lower=-2)
+    plot_multi_stack_constraint(fig.add_subplot(gs[4, 2]), lie_deriv_raw_arr, idx_Tmin, 'Tmin', 'L_f h - Min Temperature', 'L_f h')
+    plot_multi_stack_constraint(fig.add_subplot(gs[4, 3]), lie_deriv_norm_arr, idx_Tmin, 'Tmin', 'Normalized L_f h - Min Temperature', 'L_f h_norm')
+    plot_multi_stack_constraint(fig.add_subplot(gs[4, 4]), cbf_arr, idx_Tmin, 'Tmin', 'CBF Condition - Min Temperature', 'L_f h + gamma*h', fill_lower=-10, xlabel='Time (min)')
 
-    # Row 5: h_P
-    plot_multi_stack_constraint(fig.add_subplot(gs[5, 0]), h_raw_arr, idx_P, 'P', 'Raw h_P (Power)', 'h', fill_lower=-1e7)
-    plot_multi_stack_constraint(fig.add_subplot(gs[5, 1]), h_norm_arr, idx_P, 'P', 'Normalized h_P', 'h_norm', fill_lower=-2)
-    plot_multi_stack_constraint(fig.add_subplot(gs[5, 2]), lie_deriv_raw_arr, idx_P, 'P', 'L_f h - Power', 'L_f h')
-    plot_multi_stack_constraint(fig.add_subplot(gs[5, 3]), lie_deriv_norm_arr, idx_P, 'P', 'Normalized L_f h - Power', 'L_f h_norm')
-    plot_multi_stack_constraint(fig.add_subplot(gs[5, 4]), cbf_arr, idx_P, 'P', 'CBF Condition - Power', 'L_f h + gamma*h', fill_lower=-10)
-
-    # Row 6: h_Tmin
-    plot_multi_stack_constraint(fig.add_subplot(gs[6, 0]), h_raw_arr, idx_Tmin, 'Tmin', 'Raw h_Tmin (Min Temperature)', 'h', fill_lower=-100)
-    plot_multi_stack_constraint(fig.add_subplot(gs[6, 1]), h_norm_arr, idx_Tmin, 'Tmin', 'Normalized h_Tmin', 'h_norm', fill_lower=-2)
-    plot_multi_stack_constraint(fig.add_subplot(gs[6, 2]), lie_deriv_raw_arr, idx_Tmin, 'Tmin', 'L_f h - Min Temperature', 'L_f h')
-    plot_multi_stack_constraint(fig.add_subplot(gs[6, 3]), lie_deriv_norm_arr, idx_Tmin, 'Tmin', 'Normalized L_f h - Min Temperature', 'L_f h_norm')
-    plot_multi_stack_constraint(fig.add_subplot(gs[6, 4]), cbf_arr, idx_Tmin, 'Tmin', 'CBF Condition - Min Temperature', 'L_f h + gamma*h', fill_lower=-10, xlabel='Time (min)')
-
-    # Legend explanation in row 7
-    ax_leg = fig.add_subplot(gs[7, :])
+    # Legend explanation in row 5
+    ax_leg = fig.add_subplot(gs[5, :])
     ax_leg.axis('off')
     legend_text = (
         "Multi-Stack CBF Constraints: h_T (4 stacks, blue), h_HTO (1 shared, red), "
-        "h_V (4 stacks, magenta), h_P (4 stacks, cyan), h_Tmin (4 stacks, green). "
+        "h_Tmin (4 stacks, green). "
         "Red shaded regions indicate constraint violations (h < 0 or CBF condition < 0)."
     )
     ax_leg.text(0.5, 0.5, legend_text, ha='center', va='center', fontsize=12,
                 bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.3))
 
-    # Row 8: Cost Composition & Solver Timing
+    # Row 6: Cost Composition & Solver Timing
     cost_ref = np.array(history['cost_ref'])
     cost_delta = np.array(history['cost_delta'])
     cost_slack = np.array(history['cost_slack'])
     cost_total = np.array(history['cost_total'])
     solve_time_ms = np.array(history['solve_time_ms'])
 
-    ax_cost = fig.add_subplot(gs[8, 0:3])
+    ax_cost = fig.add_subplot(gs[6, 0:3])
     ax_cost.stackplot(t, cost_ref, cost_delta, cost_slack,
                       labels=['Ref Tracking', 'Control Change', 'Slack Penalty'],
                       colors=['#1f77b4', '#ff7f0e', '#d62728'], alpha=0.7)
@@ -327,7 +281,7 @@ def plot_single_test(history, config, output_path):
     ax_cost.legend(loc='upper left')
     ax_cost.grid(True, alpha=0.3)
 
-    ax_solve = fig.add_subplot(gs[8, 3:])
+    ax_solve = fig.add_subplot(gs[6, 3:])
     ax_solve.plot(t, solve_time_ms, 'g-', linewidth=1.5, label='Solve Time')
     ax_solve.axhline(y=np.mean(solve_time_ms), color='r', linestyle='--', label=f'Mean={np.mean(solve_time_ms):.1f}ms')
     ax_solve.fill_between(t, 0, solve_time_ms, alpha=0.2, color='green')
@@ -338,8 +292,8 @@ def plot_single_test(history, config, output_path):
     ax_solve.legend(loc='upper right')
     ax_solve.grid(True, alpha=0.3)
 
-    # Row 9-10: Summary
-    ax_sum = fig.add_subplot(gs[9:11, :])
+    # Summary
+    ax_sum = fig.add_subplot(gs[7, :])
     ax_sum.axis('off')
 
     max_hto = max(history['HTO'])
@@ -390,26 +344,28 @@ def main():
     parser = argparse.ArgumentParser(description='Multi-Stack Unified CBF Test and Visualization')
     parser.add_argument('--scenario', choices=['default', 'low_power_hto', 'high_temp', 'high_power'], default='low_power_hto',
                        help='Test scenario: default, low_power_hto, high_temp, or high_power')
-    parser.add_argument('--gamma_vec', type=float, nargs=17,
-                       default=[10.0]*4 + [1.0] + [10.0]*4 + [20.0]*4 + [10.0]*4,
-                       help='Per-constraint gamma values (17 elements: h_T*4, h_HTO, h_V*4, h_P*4, h_Tmin*4). '
-                            'Default: 10.0 for T/V/Tmin, 20.0 for P, 1.0 for HTO')
-    parser.add_argument('--rho_vec', type=float, nargs=17,
-                       default=[5000]*17,
-                       help='Per-constraint rho values (17 elements)')
-    parser.add_argument('--h_margin_vec', type=float, nargs=17,
-                       default=[0.0]*4 + [0.007] + [0.0]*12,
-                       help='Per-constraint safety margins (17 elements)')
+    parser.add_argument('--gamma_vec', type=float, nargs=9,
+                       default=[10.0]*4 + [1.0] + [10.0]*4,
+                       help='Per-constraint gamma values (9 elements: h_T*4, h_HTO, h_Tmin*4). '
+                            'Default: 10.0 for T/Tmin, 1.0 for HTO')
+    parser.add_argument('--rho_vec', type=float, nargs=9,
+                       default=[5000]*9,
+                       help='Per-constraint rho values (9 elements)')
+    parser.add_argument('--h_margin_vec', type=float, nargs=9,
+                       default=[0.0]*4 + [0.007] + [0.0]*4,
+                       help='Per-constraint safety margins (9 elements)')
     parser.add_argument('--lambda_u_scale', type=float, default=1000.0,
                        help='Control change penalty scale')
-    parser.add_argument('--soft_mask', type=int, nargs=17, default=[1]*17,
-                       help='Per-constraint soft slack mask (17 elements). 1=soft, 0=hard')
+    parser.add_argument('--soft_mask', type=int, nargs=9, default=[1]*9,
+                       help='Per-constraint soft slack mask (9 elements). 1=soft, 0=hard')
     parser.add_argument('--normalize', action='store_true', default=True,
                        help='Use normalized CBF')
     parser.add_argument('--duration', type=int, default=1800,
                        help='Simulation duration in seconds (default: 1800 = 30 min)')
     parser.add_argument('--output_dir', type=str, default='output/multi_stack/cbf_tests',
                        help='Output directory for figures')
+    parser.add_argument('--v_lye', type=float, default=None,
+                       help='Override lye flow rate in u_ref')
 
     args = parser.parse_args()
 
@@ -420,22 +376,23 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
 
     if args.scenario == 'low_power_hto':
-        u_ref = np.array([600.0] * 4 + [0.02] * 4 + [0.01])
+        v_lye = args.v_lye if args.v_lye is not None else 0.02
+        u_ref = np.array([600.0] * 4 + [v_lye] * 4 + [0.01])
         test_name = 'MultiStack_LowPower_HTO'
         print(f"\nRunning LOW POWER HTO test...")
-        print(f"  Reference: I=[600A x4], v_lye=[0.02 x4], v_c=0.01")
+        print(f"  Reference: I=[600A x4], v_lye=[{v_lye:.2f} x4], v_c=0.01")
     elif args.scenario == 'high_temp':
-        u_ref = np.array([7500.0] * 4 + [0.03] * 4 + [0.0])
+        v_lye = args.v_lye if args.v_lye is not None else 0.03
+        u_ref = np.array([7500.0] * 4 + [v_lye] * 4 + [0.0])
         test_name = 'MultiStack_HighTemperature'
         print(f"\nRunning HIGH TEMPERATURE test...")
-        print(f"  Reference: I=[7500A x4], v_lye=[0.03 x4], v_c=0.0")
+        print(f"  Reference: I=[7500A x4], v_lye=[{v_lye:.2f} x4], v_c=0.0")
     elif args.scenario == 'high_power':
-        # Max current to challenge power limit constraints
-        # Use high coolant flow to prevent temperature constraint triggers, focus on power/voltage
-        u_ref = np.array([9360.0] * 4 + [0.03] * 4 + [0.5])
+        v_lye = args.v_lye if args.v_lye is not None else 0.03
+        u_ref = np.array([9360.0] * 4 + [v_lye] * 4 + [0.5])
         test_name = 'MultiStack_HighPower'
         print(f"\nRunning HIGH POWER test...")
-        print(f"  Reference: I=[9360A x4] (max), v_lye=[0.03 x4], v_c=0.5 (Power limit test)")
+        print(f"  Reference: I=[9360A x4] (max), v_lye=[{v_lye:.2f} x4], v_c=0.5 (Power limit test)")
     else:
         test_name = 'MultiStack_Default'
         print(f"\nRunning default multi-stack CBF test...")

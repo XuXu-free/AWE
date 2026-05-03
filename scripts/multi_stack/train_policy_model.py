@@ -13,7 +13,7 @@ import argparse
 # Add parent directory to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from diffusion.models import DiffusionMLP, DiffusionTCN, FlowMatchingTCN, FlowMatchingMLP
+from diffusion.models import DiffusionMLP, DiffusionPureMLP, DiffusionTCN, FlowMatchingTCN, FlowMatchingMLP, PureMLP, PureTCN, LSTMPolicy
 from diffusion.ddpm import DDPMScheduler
 from diffusion.flow_matching import FlowMatchingScheduler
 
@@ -318,6 +318,15 @@ def train(args):
             levels=4
         )
         noise_scheduler = DDPMScheduler(device=device)
+    elif args.model_type == 'diffusion_tcn_l3':
+        model = DiffusionTCN(
+            output_dim=action_dim,
+            cond_dim=obs_dim,
+            output_num=horizon,
+            hidden_dim=256,
+            levels=3
+        )
+        noise_scheduler = DDPMScheduler(device=device)
     elif args.model_type == 'diffusion_mlp':
         model = DiffusionMLP(
             action_dim=action_dim,
@@ -327,11 +336,66 @@ def train(args):
             num_res_blocks=3
         )
         noise_scheduler = DDPMScheduler(device=device)
+    elif args.model_type == 'diffusion_pure_mlp':
+        model = DiffusionPureMLP(
+            action_dim=action_dim,
+            obs_dim=obs_dim,
+            horizon=horizon,
+            hidden_dim=256,
+            num_layers=4
+        )
+        noise_scheduler = DDPMScheduler(device=device)
+    elif args.model_type == 'guided_diffusion_mlp':
+        model = DiffusionMLP(
+            action_dim=action_dim,
+            obs_dim=obs_dim,
+            horizon=horizon,
+            hidden_dim=256,
+            num_res_blocks=3
+        )
+        noise_scheduler = DDPMScheduler(device=device)
+    elif args.model_type == 'guided_diffusion_tcn':
+        model = DiffusionTCN(
+            output_dim=action_dim,
+            cond_dim=obs_dim,
+            output_num=horizon,
+            hidden_dim=256,
+            levels=4
+        )
+        noise_scheduler = DDPMScheduler(device=device)
+    elif args.model_type == 'pure_mlp':
+        model = PureMLP(
+            action_dim=action_dim,
+            obs_dim=obs_dim,
+            horizon=horizon,
+            hidden_dim=256,
+            num_res_blocks=3
+        )
+        noise_scheduler = None
+    elif args.model_type == 'pure_tcn':
+        model = PureTCN(
+            action_dim=action_dim,
+            obs_dim=obs_dim,
+            horizon=horizon,
+            hidden_dim=256,
+            levels=4
+        )
+        noise_scheduler = None
+    elif args.model_type == 'lstm':
+        model = LSTMPolicy(
+            action_dim=action_dim,
+            obs_dim=obs_dim,
+            horizon=horizon,
+            hidden_dim=256,
+            num_layers=2
+        )
+        noise_scheduler = None
     else:
         raise ValueError(f"Unknown model type: {args.model_type}")
-    
+
     model.to(device)
-    noise_scheduler.device = device
+    if noise_scheduler is not None:
+        noise_scheduler.device = device
 
     print("-" * 50)
     print(f"Model Initialized Successfully")
@@ -365,20 +429,23 @@ def train(args):
             cond = cond.to(device)
             action_seq = action_seq.to(device)
             
-            if 'flow' in args.model_type:
+            if args.model_type in ('pure_mlp', 'pure_tcn', 'lstm'):
+                pred = model(cond)
+                loss = torch.nn.functional.mse_loss(pred, action_seq)
+            elif 'flow' in args.model_type:
                 loss = noise_scheduler.compute_loss(model, action_seq, cond)
             else:
                 timesteps = torch.randint(0, noise_scheduler.num_timesteps, (action_seq.shape[0],), device=device).long()
                 loss = noise_scheduler.p_losses(model, action_seq, timesteps, cond)
-            
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            
+
             train_loss += loss.item()
-            
+
         avg_train_loss = train_loss / len(train_loader)
-        
+
         # Validation
         model.eval()
         test_loss = 0
@@ -386,13 +453,16 @@ def train(args):
             for cond, action_seq in test_loader:
                 cond = cond.to(device)
                 action_seq = action_seq.to(device)
-                
-                if 'flow' in args.model_type:
+
+                if args.model_type in ('pure_mlp', 'pure_tcn', 'lstm'):
+                    pred = model(cond)
+                    loss = torch.nn.functional.mse_loss(pred, action_seq)
+                elif 'flow' in args.model_type:
                     loss = noise_scheduler.compute_loss(model, action_seq, cond)
                 else:
                     timesteps = torch.randint(0, noise_scheduler.num_timesteps, (action_seq.shape[0],), device=device).long()
                     loss = noise_scheduler.p_losses(model, action_seq, timesteps, cond)
-                    
+
                 test_loss += loss.item()
                 
         avg_test_loss = test_loss / len(test_loader)
@@ -436,7 +506,7 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=50, help='Number of training epochs')
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--lr', type=float, default=1e-4)
-    parser.add_argument('--model_type', type=str, default='diffusion_tcn', choices=['diffusion_tcn', 'diffusion_mlp', 'flow_tcn', 'flow_mlp'], help='Model type: diffusion_tcn, diffusion_mlp, flow_tcn, flow_mlp')
+    parser.add_argument('--model_type', type=str, default='diffusion_tcn', choices=['diffusion_tcn', 'diffusion_tcn_l3', 'diffusion_mlp', 'diffusion_pure_mlp', 'guided_diffusion_mlp', 'guided_diffusion_tcn', 'flow_tcn', 'flow_mlp', 'pure_mlp', 'pure_tcn', 'lstm'], help='Model type: diffusion_tcn, diffusion_mlp, flow_tcn, flow_mlp, pure_mlp, pure_tcn, lstm')
 
     args = parser.parse_args()
     

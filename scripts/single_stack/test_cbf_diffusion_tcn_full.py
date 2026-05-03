@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Single-Stack Diffusion TCN + CBF Model Controller Test (Full Diagnostics)
+Single-Stack TCN Diffusion + CBF Model Controller Test (Full Diagnostics)
 
 Records and visualizes complete CBF constraint reaction:
 - h values for all 5 constraints
@@ -307,7 +307,7 @@ def plot_full_diagnostics(history, output_dir, title_suffix=""):
     ax15.grid(True, alpha=0.3)
 
     fig.suptitle(
-        f'Diffusion TCN + CBF: Full Constraint Diagnostics{title_suffix}\n'
+        f'TCN Diffusion + CBF: Full Constraint Diagnostics{title_suffix}\n'
         'CBF Params: gamma=[3,2,100,100,5], h_margin_HTO=0.002, soft_mask=[F,T,T,F,T]',
         fontsize=15, fontweight='bold'
     )
@@ -349,7 +349,7 @@ def main():
     ]
 
     print("\n" + "=" * 70)
-    print("Diffusion TCN + CBF: Full Diagnostics Test")
+    print("TCN Diffusion + CBF: Full Diagnostics Test")
     print("=" * 70)
 
     ctrl = SingleStackCBFModelController(
@@ -364,7 +364,7 @@ def main():
         normalize=True,
     )
 
-    hist = run_test(ctrl, "Diffusion TCN + CBF", initial_state, P_ref_profile, duration=7200)
+    hist = run_test(ctrl, "TCN Diffusion + CBF", initial_state, P_ref_profile, duration=7200)
     plot_full_diagnostics(hist, output_dir)
 
     print("\n" + "=" * 70)

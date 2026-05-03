@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Single-Stack Diffusion TCN + CBF Model Controller Test
+Single-Stack TCN Diffusion + CBF Model Controller Test
 
 Tests the trained diffusion_tcn policy with CBF safety projection.
 Compares three variants:
-1. Diffusion TCN (raw, no safety)
-2. Diffusion TCN + Safe Projection
-3. Diffusion TCN + CBF Projection (tuned params)
+1. TCN Diffusion (raw, no safety)
+2. TCN Diffusion + Safe Projection
+3. TCN Diffusion + CBF Projection (tuned params)
 """
 
 import os
@@ -251,7 +251,7 @@ def plot_results(histories, names, output_dir):
     ax.grid(True, alpha=0.3, axis='y')
 
     fig.suptitle(
-        'Diffusion TCN + CBF: Single-Stack Safety Comparison\n'
+        'TCN Diffusion + CBF: Single-Stack Safety Comparison\n'
         'Model: diffusion_tcn | CBF Params: gamma=[3,2,100,100,5], h_margin_HTO=0.002',
         fontsize=14, fontweight='bold'
     )
@@ -298,28 +298,28 @@ def main():
     ]
 
     print("\n" + "=" * 70)
-    print("Diffusion TCN + CBF Safety Test")
+    print("TCN Diffusion + CBF Safety Test")
     print("=" * 70)
 
-    # 1. Raw Diffusion TCN
-    print("\n[1/3] Loading raw Diffusion TCN (no safety)...")
+    # 1. Raw TCN Diffusion
+    print("\n[1/3] Loading raw TCN Diffusion (no safety)...")
     ctrl_basic = SingleStackModelController(
         dt=60.0, horizon=5, model_type='diffusion_tcn',
         model_path=model_path, stats_path=stats_path
     )
-    hist_basic = run_test(ctrl_basic, "Diffusion TCN (raw)", initial_state, P_ref_profile)
+    hist_basic = run_test(ctrl_basic, "TCN Diffusion (raw)", initial_state, P_ref_profile)
 
     # 2. Safe Projection
-    print("\n[2/3] Loading Diffusion TCN + Safe Projection...")
+    print("\n[2/3] Loading TCN Diffusion + Safe Projection...")
     ctrl_safe = SingleStackSafeModelController(
         dt=60.0, horizon=5, model_type='diffusion_tcn',
         model_path=model_path, stats_path=stats_path,
         use_safe_projection=True
     )
-    hist_safe = run_test(ctrl_safe, "Diffusion TCN + Safe", initial_state, P_ref_profile)
+    hist_safe = run_test(ctrl_safe, "TCN Diffusion + Safe", initial_state, P_ref_profile)
 
     # 3. CBF Projection (tuned params)
-    print("\n[3/3] Loading Diffusion TCN + CBF Projection...")
+    print("\n[3/3] Loading TCN Diffusion + CBF Projection...")
     ctrl_cbf = SingleStackCBFModelController(
         dt=60.0, horizon=5, model_type='diffusion_tcn',
         model_path=model_path, stats_path=stats_path,
@@ -331,7 +331,7 @@ def main():
         soft_mask=[False, True, True, False, True],
         normalize=True,
     )
-    hist_cbf = run_test(ctrl_cbf, "Diffusion TCN + CBF", initial_state, P_ref_profile)
+    hist_cbf = run_test(ctrl_cbf, "TCN Diffusion + CBF", initial_state, P_ref_profile)
 
     # Plot
     plot_results([hist_basic, hist_safe, hist_cbf],
