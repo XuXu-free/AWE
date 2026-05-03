@@ -128,6 +128,63 @@ class DiffusionTCN(nn.Module):
             
         return output
 
+class PureTCN(nn.Module):
+    """
+    Standard TCN for direct prediction without diffusion/flow matching.
+    Input: Condition (State)
+    Output: Action Sequence
+    """
+    def __init__(
+        self,
+        action_dim,
+        obs_dim,
+        horizon=16,
+        hidden_dim=256,
+        levels=4,
+        kernel_size=3,
+        dropout=0.0,
+    ):
+        super(PureTCN, self).__init__()
+        self.action_dim = action_dim
+        self.obs_dim = obs_dim
+        self.horizon = horizon
+        self.hidden_dim = hidden_dim
+
+        # Condition projection
+        self.cond_proj = nn.Linear(obs_dim, hidden_dim)
+
+        # Input projection
+        self.input_proj = nn.Conv1d(hidden_dim, hidden_dim, 1)
+
+        layers = []
+        num_channels = [hidden_dim] * (levels + 1)
+        for i in range(levels):
+            dilation_size = 2 ** i
+            in_channels = num_channels[i]
+            out_channels = num_channels[i+1]
+            layers += [TemporalBlock(in_channels, out_channels, kernel_size, stride=1, dilation=dilation_size,
+                                     padding=(kernel_size-1) * dilation_size, dropout=dropout)]
+
+        self.tcn = nn.ModuleList(layers)
+
+        # Final output projection
+        self.output_proj = nn.Conv1d(hidden_dim, action_dim, 1)
+
+    def forward(self, cond):
+        """
+        cond: (batch, obs_dim)
+        Returns: (batch, action_dim, horizon)
+        """
+        cond_emb = self.cond_proj(cond)
+        h = cond_emb.unsqueeze(-1).repeat(1, 1, self.horizon)
+        h = self.input_proj(h)
+
+        for layer in self.tcn:
+            h = layer(h)
+
+        output = self.output_proj(h)
+        return output
+
 class FlowMatchingTCN(nn.Module):
     def __init__(
         self, 

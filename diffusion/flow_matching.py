@@ -47,33 +47,41 @@ class FlowMatchingScheduler:
         return loss
 
     @torch.no_grad()
-    def sample(self, model, cond, shape, steps=50, noise_scale=0.0):
+    def sample(self, model, cond, shape, steps=50, noise_scale=0.0, warm_start=None, alpha=0.7):
         """
         Generate samples using Euler integration.
         shape: tuple of output shape (e.g. (batch_size, action_dim) or (batch_size, action_dim, horizon))
+        warm_start: Previous best action sequence in normalized space, shape (1, action_dim, horizon) or (batch_size, ...)
+        alpha: Warm-start level in [0, 1]. alpha=1 starts from warm_start, alpha=0 from pure noise.
         """
         batch_size = cond.shape[0] # Should match shape[0]
-        
-        # Start from Noise x_0
-        x = torch.randn(shape, device=self.device)
-            
+
+        if warm_start is not None:
+            # Expand warm_start to match batch size if needed
+            if warm_start.shape[0] == 1 and batch_size > 1:
+                warm_start = warm_start.expand(batch_size, -1, -1)
+            x = (1 - alpha) * torch.randn(shape, device=self.device) + alpha * warm_start.to(self.device)
+        else:
+            # Start from Noise x_0
+            x = torch.randn(shape, device=self.device)
+
         dt = 1.0 / steps
-        
+
         # Integration Loop t: 0 -> 1
         for i in range(steps):
             t_val = i / steps
             t = torch.full((batch_size,), t_val, device=self.device)
-            
+
             # Predict velocity
             v = model(x, t, cond)
-            
+
             # Euler Step
             x = x + v * dt
-            
+
             # Add Noise (Langevin-like heuristic)
             if noise_scale > 0:
                 # Add noise scaled by sqrt(dt)
                 noise = torch.randn_like(x) * noise_scale * np.sqrt(dt)
                 x = x + noise
-            
+
         return x

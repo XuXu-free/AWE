@@ -10,9 +10,14 @@ class HardFlowScheduler:
         p2 = torch.relu(lb - y)
         return (p1.pow(2) + p2.pow(2)).sum()
 
-    def sample(self, model, cond, shape, steps=20, num_iters=10, lambda_oc=1.0, bounds=None, smooth_ref=None, smooth_w=0.0, step_size=0.2, noise_scale=0.0):
+    def sample(self, model, cond, shape, steps=20, num_iters=10, lambda_oc=1.0, bounds=None, smooth_ref=None, smooth_w=0.0, step_size=0.2, noise_scale=0.0, warm_start=None, alpha=0.7):
         batch_size = cond.shape[0]
-        x = torch.randn(shape, device=self.device)
+        if warm_start is not None:
+            if warm_start.shape[0] == 1 and batch_size > 1:
+                warm_start = warm_start.expand(batch_size, -1, -1)
+            x = (1 - alpha) * torch.randn(shape, device=self.device) + alpha * warm_start.to(self.device)
+        else:
+            x = torch.randn(shape, device=self.device)
         dt = 1.0 / steps
         if bounds is None:
             lb = torch.full_like(x, -1.0)

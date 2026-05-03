@@ -96,6 +96,83 @@ class DiffusionMLP(nn.Module):
             
         return output
 
+class DiffusionPureMLP(nn.Module):
+    """
+    Diffusion model with a simple MLP trunk (no residual blocks).
+    Used as an ablation to isolate the effect of residual connections
+    vs. the diffusion training framework.
+    """
+    def __init__(
+        self,
+        action_dim,
+        obs_dim,
+        horizon=1,
+        hidden_dim=256,
+        num_layers=4,
+        dropout=0.0
+    ):
+        super().__init__()
+        self.action_dim = action_dim
+        self.obs_dim = obs_dim
+        self.horizon = horizon
+
+        flat_dim = action_dim * horizon
+
+        # Timestep embedding
+        self.time_dim = hidden_dim
+        self.time_mlp = nn.Sequential(
+            SinusoidalPosEmb(hidden_dim),
+            nn.Linear(hidden_dim, hidden_dim * 2),
+            nn.Mish(),
+            nn.Linear(hidden_dim * 2, hidden_dim),
+        )
+
+        # Input projection
+        self.input_proj = nn.Linear(flat_dim, hidden_dim)
+        self.cond_proj = nn.Linear(obs_dim, hidden_dim)
+
+        # Simple MLP trunk (no residual blocks)
+        layers = []
+        for i in range(num_layers):
+            layers.append(nn.Linear(hidden_dim, hidden_dim))
+            layers.append(nn.Mish())
+            if dropout > 0:
+                layers.append(nn.Dropout(dropout))
+        self.trunk = nn.Sequential(*layers)
+
+        # Final output
+        self.output_proj = nn.Linear(hidden_dim, flat_dim)
+
+    def forward(self, x, t, cond):
+        """
+        x: (batch, action_dim, horizon) or (batch, flattened_dim) - Noisy action
+        t: (batch,) - Timestep
+        cond: (batch, obs_dim) - Observation/Condition
+        """
+        is_seq = False
+        if x.dim() == 3:
+            is_seq = True
+            x = x.reshape(x.shape[0], -1)
+
+        # Embeddings
+        t_emb = self.time_mlp(t)
+        x_emb = self.input_proj(x)
+        cond_emb = self.cond_proj(cond)
+
+        # Combine
+        h = x_emb + t_emb + cond_emb
+
+        # Simple MLP trunk
+        h = self.trunk(h)
+
+        output = self.output_proj(h)
+
+        if is_seq:
+            output = output.reshape(output.shape[0], self.action_dim, self.horizon)
+
+        return output
+
+
 class PureMLP(nn.Module):
     """
     Standard MLP for direct prediction without diffusion/flow matching.
