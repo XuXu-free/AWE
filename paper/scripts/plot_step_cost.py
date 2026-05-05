@@ -145,7 +145,7 @@ for bar in bars:
 # (b) 单步计算时间对比
 ax_time = axes[1]
 if timing:
-    ordered_labels = ['NMPC', 'TCN Diffusion', 'Diffusion MLP', 'MLP']
+    ordered_labels = ['TCN Diffusion', 'Diffusion MLP', 'NMPC', 'MLP']
     time_vals = [timing.get(l, 0) for l in ordered_labels]
     bars = ax_time.bar(ordered_labels, time_vals, color=[METHOD_COLORS[l] for l in ordered_labels], edgecolor='white', linewidth=0.5)
     ax_time.set_ylabel('单步计算时间 (ms)')

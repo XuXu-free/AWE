@@ -166,26 +166,26 @@
   \end{tabular}
 \end{table}
 
-\begin{table}[!htbp]
-  \centering
-  \caption{网络架构超参数配置}
-  \label{tab:params_network}
-  \small
-  \begin{tabular}{@{}l l l@{}}
-    \toprule
-    \textbf{参数} & \textbf{TCN} & \textbf{MLP} \\
-    \midrule
-    网络类型 & 时序卷积网络 & 多层感知机 \\
-    隐藏维度 & 256 & 512（三层） \\
-    卷积核大小 & 3 & - \\
-    空洞因子 & $[1, 2, 4]$ & - \\
-    激活函数 & Mish & - \\
-    时间步嵌入 & 正弦位置编码 & - \\
-    归一化 & - & LayerNorm \\
-    残差连接 & 有 & 有 \\
-    \bottomrule
-  \end{tabular}
-\end{table}
+% \begin{table}[!htbp]
+%   \centering
+%   \caption{网络架构超参数配置}
+%   \label{tab:params_network}
+%   \small
+%   \begin{tabular}{@{}l l l@{}}
+%     \toprule
+%     \textbf{参数} & \textbf{TCN} & \textbf{MLP} \\
+%     \midrule
+%     网络类型 & 时序卷积网络 & 多层感知机 \\
+%     隐藏维度 & 256 & 512（三层） \\
+%     卷积核大小 & 3 & - \\
+%     空洞因子 & $[1, 2, 4]$ & - \\
+%     激活函数 & Mish & - \\
+%     时间步嵌入 & 正弦位置编码 & - \\
+%     归一化 & - & LayerNorm \\
+%     残差连接 & 有 & 有 \\
+%     \bottomrule
+%   \end{tabular}
+% \end{table}
 
 \chapter{实验设置}
 \label{app:experiment_settings}
