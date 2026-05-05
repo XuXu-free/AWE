@@ -101,7 +101,7 @@ class MultiStackModelController(BaseController):
                 action_dim=self.action_dim,
                 obs_dim=self.obs_dim,
                 horizon=horizon,
-                hidden_dim=256,
+                hidden_dim=512,
                 num_layers=4).to(self.device)
             self.scheduler = DDPMScheduler(device=self.device)
         elif model_type == 'deterministic_diffusion_pure_mlp':

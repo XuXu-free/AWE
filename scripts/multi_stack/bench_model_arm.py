@@ -25,15 +25,16 @@ from plant.multi_stack_simulator import MultiStackSimulator
 
 
 MODEL_CONFIGS = [
-    {"model_type": "diffusion_tcn",      "weight": "diffusion_tcn_policy_best.pth"},
-    {"model_type": "diffusion_mlp",      "weight": "diffusion_mlp_policy_best.pth"},
-    {"model_type": "diffusion_pure_mlp", "weight": "diffusion_pure_mlp_policy_best.pth"},
-    {"model_type": "pure_mlp",           "weight": "pure_mlp_policy_best.pth"},
+    {"model_type": "diffusion_tcn",      "weight": "diffusion_tcn_policy_best.pth",      "num_candidates": 128},
+    {"model_type": "diffusion_tcn_l3",   "weight": "diffusion_tcn_l3_policy_best.pth",   "num_candidates": 128},
+    {"model_type": "diffusion_mlp",      "weight": "diffusion_mlp_policy_best.pth",      "num_candidates": 1024},
+    {"model_type": "diffusion_pure_mlp", "weight": "diffusion_pure_mlp_policy_best.pth", "num_candidates": 1024},
+    {"model_type": "pure_mlp",           "weight": "pure_mlp_policy_best.pth",           "num_candidates": 1024},
 ]
 
 
 def benchmark_model(model_type, weight_name, sim, last_action, P_future, T_REF,
-                    n_warmup=1, n_runs=5):
+                    n_warmup=1, n_runs=5, num_candidates=None):
     from controller.multi_stack.model_controller import MultiStackModelController
 
     DT_CTRL = 60.0
@@ -56,6 +57,8 @@ def benchmark_model(model_type, weight_name, sim, last_action, P_future, T_REF,
         model_path=model_path,
         stats_path=stats_path,
     )
+    if num_candidates is not None:
+        ctrl.num_candidates = num_candidates
     print(f"  done in {time.perf_counter()-t0:.3f}s")
     print(f"  device: {ctrl.device}, batch_rollout: {ctrl.use_batch_rollout}, candidates: {ctrl.num_candidates}")
 
@@ -139,6 +142,7 @@ def main():
             cfg["model_type"], cfg["weight"],
             sim, last_action, P_future, T_REF,
             n_warmup=N_WARMUP, n_runs=N_RUNS,
+            num_candidates=cfg.get("num_candidates"),
         )
         if res is not None:
             results.append(res)
